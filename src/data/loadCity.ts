@@ -18,7 +18,7 @@ export interface LoadedCity {
 
 export type ProgressFn = (stage: string, pct: number) => void;
 
-const DATA_ROOT = '/data';
+const DATA_ROOT = `${import.meta.env.BASE_URL}data`;
 
 export async function loadRegistry(): Promise<CityRegistry> {
   const res = await fetch(`${DATA_ROOT}/cities.json`, { cache: 'no-store' });
