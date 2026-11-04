@@ -1,0 +1,53 @@
+{
+  "quantization": 0.5,
+  "tiers": [
+    {
+      "id": "base",
+      "file": "terrain-base.bin",
+      "bbox": [
+        105.26,
+        28.15,
+        110.2,
+        32.21
+      ],
+      "width": 1536,
+      "height": 1449,
+      "minH": -364.7,
+      "maxH": 2924.6,
+      "resolutionX": 311.42,
+      "resolutionZ": 311.39
+    },
+    {
+      "id": "core",
+      "file": "terrain-core.bin",
+      "bbox": [
+        106.18,
+        29.3,
+        106.92,
+        29.94
+      ],
+      "width": 1408,
+      "height": 1398,
+      "minH": -208.2,
+      "maxH": 1328.2,
+      "resolutionX": 50.89,
+      "resolutionZ": 50.88
+    },
+    {
+      "id": "cbd",
+      "file": "terrain-cbd.bin",
+      "bbox": [
+        106.4,
+        29.5,
+        106.66,
+        29.66
+      ],
+      "width": 1400,
+      "height": 989,
+      "minH": 138,
+      "maxH": 668.6,
+      "resolutionX": 17.98,
+      "resolutionZ": 17.98
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "id": "cq",
+  "name": "重庆",
+  "subtitle": "山城轨道",
+  "bbox": [105.26, 28.15, 110.2, 32.21],
+  "center": [106.55, 29.56],
+  "pbf": "https://download.openstreetmap.fr/extracts/asia/china/chongqing.osm.pbf",
+  "service": {
+    "startSec": 21600,
+    "endSec": 82800,
+    "peakRanges": [[25200, 34200], [61200, 70200]],
+    "headwayPeakSec": 300,
+    "headwayOffSec": 480,
+    "dwellSec": 30
+  },
+  "lineSpeedKph": {
+    "loop": 33,
+    "1": 34,
+    "2": 22,
+    "3": 42,
+    "3-airport": 30,
+    "4": 38,
+    "5": 36,
+    "6": 38,
+    "6-guobo": 30,
+    "9": 36,
+    "10": 40,
+    "18": 38,
+    "jiangtiao": 55,
+    "bitong": 55
+  },
+  "terrain": {
+    "tiers": [
+      {
+        "id": "base",
+        "bbox": [105.26, 28.15, 110.2, 32.21],
+        "z": 10,
+        "targetWidth": 1536
+      },
+      {
+        "id": "core",
+        "bbox": [106.18, 29.3, 106.92, 29.94],
+        "z": 12,
+        "targetWidth": 1408
+      },
+      {
+        "id": "cbd",
+        "bbox": [106.4, 29.5, 106.66, 29.66],
+        "z": 13,
+        "targetWidth": 1400
+      }
+    ]
+  }
+}
