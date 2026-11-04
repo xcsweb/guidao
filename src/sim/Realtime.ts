@@ -127,6 +127,9 @@ export class HttpRealtimeProvider {
         progress: Math.max(0, Math.min(1, distance / Math.max(1, geo.length))),
         atStation: speedKph < 0.5,
         departedAt: 0,
+        code: (raw.id || String(trains.length + 1)).slice(-4).toUpperCase(),
+        status: speedKph < 0.5 ? 'dwelling' : 'running',
+        nextArrivalSec: 0,
       });
     }
     if (!trains.length) {

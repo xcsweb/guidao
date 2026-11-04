@@ -40,6 +40,7 @@ export class TransitLayer {
   private overview = false;
   private railCells = new Set<string>();
   private readonly railCellSize = 15;
+  private hiddenStations: Set<string> = new Set();
 
   constructor(network: NetworkFile, terrain: TerrainSystem) {
     const stationInfo = new Map<string, { x: number; y: number; z: number; color: string }>();
@@ -271,6 +272,39 @@ export class TransitLayer {
 
   setLabelDistance(distance: number): void {
     this.labelDistance = distance;
+  }
+
+  /** Collapse the icon markers for stations that now have a detailed 3D model. */
+  setStationMarkersHidden(ids: Set<string>): void {
+    if (ids.size === this.hiddenStations.size) {
+      let same = true;
+      for (const id of ids) {
+        if (!this.hiddenStations.has(id)) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return;
+    }
+    this.hiddenStations = new Set(ids);
+    const matrix = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    this.stationOrder.forEach((st, i) => {
+      const anchor = this.stationPositions.get(st.id);
+      if (!anchor) return;
+      const hidden = this.hiddenStations.has(st.id);
+      scale.set(1, hidden ? 0.001 : 1, 1);
+      pos.set(anchor.x, anchor.y - 2, anchor.z);
+      matrix.compose(pos, quat, scale);
+      this.stationMesh.setMatrixAt(i, matrix);
+      pos.set(anchor.x, anchor.y + 0.6, anchor.z);
+      matrix.compose(pos, quat, scale);
+      this.ringMesh.setMatrixAt(i, matrix);
+    });
+    this.stationMesh.instanceMatrix.needsUpdate = true;
+    this.ringMesh.instanceMatrix.needsUpdate = true;
   }
 
   update(camera: THREE.PerspectiveCamera): void {

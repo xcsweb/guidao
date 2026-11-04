@@ -1,10 +1,16 @@
 import type { CSSProperties } from 'react';
 import type { ViewerApi } from '@/state/api';
-import { store, useAppState } from '@/state/store';
+import { store, useAppState, directionLabel, formatClockAbs, formatDuration } from '@/state/store';
 import { CloseIcon, TargetIcon } from './Icons';
 
 interface StationCardProps {
   api: ViewerApi | null;
+}
+
+function callStateLabel(state: 'approaching' | 'dwelling' | 'departing', etaSec: number): string {
+  if (state === 'dwelling') return '停站中';
+  if (state === 'departing') return '刚出站';
+  return etaSec < 60 ? '即将进站' : '驶向本站';
 }
 
 export function StationCard({ api }: StationCardProps) {
@@ -23,6 +29,9 @@ export function StationCard({ api }: StationCardProps) {
     })
     .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
 
+  const calls = state.stationBoard;
+  const live = state.source.kind === 'http';
+
   return (
     <section className="station-card glass-panel" aria-label={`${station.name}站点信息`}>
       <div className="station-head">
@@ -33,7 +42,7 @@ export function StationCard({ api }: StationCardProps) {
         <button
           type="button"
           className="icon-btn is-quiet"
-          onClick={() => store.patch({ station: null })}
+          onClick={() => store.patch({ station: null, stationBoard: [] })}
           aria-label="关闭站点信息"
         >
           <CloseIcon width={14} height={14} />
@@ -51,6 +60,44 @@ export function StationCard({ api }: StationCardProps) {
             {line.name}
           </span>
         ))}
+      </div>
+
+      <div className="station-board">
+        <div className="station-board-head">
+          <span>到发预告</span>
+          <small>{live ? '实时源' : '班次推演'}</small>
+        </div>
+        {calls.length === 0 ? (
+          <p className="station-board-empty">当前时段暂无到站列车</p>
+        ) : (
+          <ul className="station-board-list">
+            {calls.slice(0, 6).map((call) => {
+              const key = `${call.lineId}-${call.direction}-${call.arrivalSec}`;
+              return (
+                <li key={key} className={`station-call is-${call.state}`}>
+                  <span className="station-call-color" style={{ background: call.color }} aria-hidden="true" />
+                  <div className="station-call-main">
+                    <div className="station-call-dest">
+                      往 {call.destination}
+                      <em>
+                        {call.lineName} · {directionLabel(call.direction)} · {call.trainCode}
+                      </em>
+                    </div>
+                    <div className="station-call-time">
+                      {formatClockAbs(call.arrivalSec)} 到站
+                      {call.state === 'approaching' && call.etaSec > 0
+                        ? ` · ${formatDuration(call.etaSec)}`
+                        : ''}
+                    </div>
+                  </div>
+                  <span className="station-call-state">
+                    {callStateLabel(call.state, call.etaSec)}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
 
       <dl className="station-meta">
@@ -83,7 +130,7 @@ export function StationCard({ api }: StationCardProps) {
         <button
           type="button"
           className="btn btn-ghost"
-          onClick={() => store.patch({ station: null })}
+          onClick={() => store.patch({ station: null, stationBoard: [] })}
         >
           关闭
         </button>

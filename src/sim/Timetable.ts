@@ -1,6 +1,8 @@
 import type { LineData, NetworkFile, ServiceConfig } from '@/data/types';
 import { LineGeometry } from '@/engine/LineGeometry';
 
+export type TrainStatus = 'running' | 'arriving' | 'dwelling' | 'departing';
+
 export interface SimTrain {
   id: string;
   lineId: string;
@@ -16,6 +18,43 @@ export interface SimTrain {
   progress: number;
   atStation: boolean;
   departedAt: number;
+  code: string;
+  status: TrainStatus;
+  /** Absolute clock time (seconds since midnight) of the next scheduled arrival. */
+  nextArrivalSec: number;
+}
+
+export interface StationCall {
+  lineId: string;
+  lineName: string;
+  color: string;
+  direction: 0 | 1;
+  destination: string;
+  trainCode: string;
+  arrivalSec: number;
+  departureSec: number;
+  etaSec: number;
+  state: 'approaching' | 'dwelling' | 'departing';
+}
+
+export interface LineBoardDirection {
+  direction: 0 | 1;
+  destination: string;
+  departures: number[];
+}
+
+export interface LineBoardStation {
+  id: string;
+  name: string;
+  arrivals: [number[], number[]];
+}
+
+export interface LineBoard {
+  lineId: string;
+  lineName: string;
+  color: string;
+  directions: [LineBoardDirection, LineBoardDirection];
+  stations: LineBoardStation[];
 }
 
 interface SegmentProfile {
@@ -174,6 +213,7 @@ export class Timetable {
   private trainAt(schedule: DirSchedule, t: number, departedAt: number): SimTrain | null {
     const { stations, segments, arrivals, departures, line } = schedule;
     if (t <= 0 || t >= schedule.duration) return null;
+    const code = trainNumber(departedAt);
     for (let i = 0; i < segments.length; i++) {
       if (t < departures[i]) {
         // still dwelling at station i
@@ -194,6 +234,9 @@ export class Timetable {
           progress: stations[i].s / Math.max(1, line.length),
           atStation: true,
           departedAt,
+          code,
+          status: 'dwelling',
+          nextArrivalSec: departedAt + arrivals[i + 1],
         };
       }
       if (t < arrivals[i + 1]) {
@@ -201,6 +244,10 @@ export class Timetable {
         const { pos, speed } = posInProfile(segments[i], local);
         const distance = stations[i].s + pos;
         const next = stations[i + 1];
+        const remaining = arrivals[i + 1] - t;
+        let status: TrainStatus = 'running';
+        if (local < 12) status = 'departing';
+        else if (remaining < 26) status = 'arriving';
         return {
           id: `${line.id}-${schedule.direction}-${departedAt}`,
           lineId: line.id,
@@ -212,10 +259,13 @@ export class Timetable {
           speedKph: speed * 3.6,
           nextStationId: next.id,
           nextStationName: next.name,
-          etaSec: Math.max(0, arrivals[i + 1] - t),
+          etaSec: Math.max(0, remaining),
           progress: distance / Math.max(1, line.length),
           atStation: false,
           departedAt,
+          code,
+          status,
+          nextArrivalSec: departedAt + arrivals[i + 1],
         };
       }
     }
@@ -235,12 +285,111 @@ export class Timetable {
       progress: 1,
       atStation: true,
       departedAt,
+      code,
+      status: 'dwelling',
+      nextArrivalSec: departedAt + arrivals[arrivals.length - 1],
+    };
+  }
+
+  /** Next train calls at a station, including the one currently dwelling. */
+  stationBoard(stationId: string, nowSec: number, perDirection = 2, horizon = 2100): StationCall[] {
+    const now = ((nowSec % 86400) + 86400) % 86400;
+    const out: StationCall[] = [];
+    for (const pair of this.schedules.values()) {
+      for (const schedule of pair) {
+        const idx = schedule.stations.findIndex((station) => station.id === stationId);
+        if (idx < 0) continue;
+        let per = 0;
+        for (const dep of schedule.departuresAt) {
+          const arrival = dep + schedule.arrivals[idx];
+          const departure = dep + schedule.departures[idx];
+          const dt = arrival - now;
+          if (dt > horizon) break;
+          if (departure - now < -50) continue;
+          const state: StationCall['state'] =
+            departure <= now ? 'departing' : arrival <= now ? 'dwelling' : 'approaching';
+          out.push({
+            lineId: schedule.line.id,
+            lineName: schedule.line.name,
+            color: schedule.line.color,
+            direction: schedule.direction,
+            destination: schedule.stations[schedule.stations.length - 1].name,
+            trainCode: trainNumber(dep),
+            arrivalSec: arrival,
+            departureSec: departure,
+            etaSec: Math.max(0, dt),
+            state,
+          });
+          per++;
+          if (per >= perDirection) break;
+        }
+      }
+    }
+    out.sort((a, b) => a.etaSec - b.etaSec || a.arrivalSec - b.arrivalSec);
+    return out;
+  }
+
+  /** Direction summary and the next two arrivals at every station on a line. */
+  lineBoard(lineId: string, nowSec: number): LineBoard | null {
+    const pair = this.schedules.get(lineId);
+    if (!pair) return null;
+    const now = ((nowSec % 86400) + 86400) % 86400;
+    const direction = (schedule: DirSchedule): LineBoardDirection => ({
+      direction: schedule.direction,
+      destination: schedule.stations[schedule.stations.length - 1].name,
+      departures: schedule.departuresAt
+        .filter((dep) => dep - now >= -30)
+        .slice(0, 6),
+    });
+    const stations: LineBoardStation[] = [];
+    const seen = new Set<string>();
+    for (const station of pair[0].stations) {
+      if (seen.has(station.id)) continue;
+      seen.add(station.id);
+      const idx0 = pair[0].stations.findIndex((item) => item.id === station.id);
+      const idx1 = pair[1].stations.findIndex((item) => item.id === station.id);
+      stations.push({
+        id: station.id,
+        name: station.name,
+        arrivals: [
+          nextArrivals(pair[0], idx0, now, 2),
+          idx1 >= 0 ? nextArrivals(pair[1], idx1, now, 2) : [],
+        ],
+      });
+    }
+    return {
+      lineId,
+      lineName: pair[0].line.name,
+      color: pair[0].line.color,
+      directions: [direction(pair[0]), direction(pair[1])],
+      stations,
     };
   }
 
   config(): ServiceConfig {
     return this.service;
   }
+}
+
+export function trainNumber(departedAt: number): string {
+  const total = Math.floor(departedAt / 60) % 1440;
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${String(h).padStart(2, '0')}${String(m).padStart(2, '0')}`;
+}
+
+function nextArrivals(schedule: DirSchedule, index: number, now: number, limit: number): number[] {
+  if (index < 0) return [];
+  const out: number[] = [];
+  for (const dep of schedule.departuresAt) {
+    const arrival = dep + schedule.arrivals[index];
+    const dt = arrival - now;
+    if (dt < -60) continue;
+    if (dt > 86400 * 0.75) break;
+    out.push(arrival);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 export class SimClock {

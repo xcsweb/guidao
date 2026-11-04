@@ -123,7 +123,11 @@ export function App() {
   const following = state.follow !== null;
 
   return (
-    <div className={`app${following ? ' is-following' : ''}`}>
+    <div
+      className={`app${following ? ' is-following' : ''}${
+        trainPanelOpen ? ' is-train-panel-open' : ''
+      }`}
+    >
       <div className="scene-shell">
         <canvas id="scene" ref={canvasRef} aria-label="重庆轨道交通三维场景" />
       </div>

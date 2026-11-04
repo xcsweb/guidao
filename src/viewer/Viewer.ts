@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { LoadedCity } from '@/data/loadCity';
+import type { LineGeometry } from '@/engine/LineGeometry';
 import type { LineSummary, Quality, TrainInfo } from '@/state/store';
 import { store, lineSummaries } from '@/state/store';
 import type { ViewerApi } from '@/state/api';
 import type { StationData } from '@/data/types';
 import { TerrainSystem } from '@/engine/Terrain';
 import { TransitLayer } from '@/engine/TransitLayer';
+import { StationDetailLayer } from '@/engine/StationDetailLayer';
+import { TunnelLayer } from '@/engine/TunnelLayer';
 import { BuildingLayer } from '@/engine/BuildingLayer';
 import { WaterLayer } from '@/engine/WaterLayer';
 import { TrainLayer } from '@/engine/TrainLayer';
@@ -35,6 +38,8 @@ void main() {
   gl_FragColor = vec4(col, 1.0);
 }`;
 
+const EMPTY_STATIONS = new Set<string>();
+
 export class Viewer {
   readonly api: ViewerApi;
   private canvas: HTMLCanvasElement;
@@ -46,6 +51,8 @@ export class Viewer {
   private root = new THREE.Group();
   private terrain: TerrainSystem;
   private transit: TransitLayer;
+  private stationDetail: StationDetailLayer;
+  private tunnel: TunnelLayer;
   private buildings: BuildingLayer;
   private vegetation: VegetationLayer;
   private water: WaterLayer;
@@ -60,6 +67,7 @@ export class Viewer {
   private selectedLineId: string | null = null;
   private followId: string | null = null;
   private followMissCount = 0;
+  private tunnelActiveView = false;
   private currentTrains: SimTrain[] = [];
   private resolved: ResolvedTrains | null = null;
   private running = false;
@@ -127,6 +135,16 @@ export class Viewer {
     this.transit = new TransitLayer(loaded.network, this.terrain);
     this.root.add(this.transit.group);
     this.root.add(this.transit.labelGroup);
+    this.stationDetail = new StationDetailLayer(
+      loaded.network,
+      this.transit.geometries,
+      this.transit.stationPositions,
+      window.innerHeight,
+      this.camera.fov,
+    );
+    this.root.add(this.stationDetail.group);
+    this.tunnel = new TunnelLayer();
+    this.root.add(this.tunnel.group);
     this.buildings = new BuildingLayer(
       loaded.buildings,
       loaded.features.buildings.stride,
@@ -189,6 +207,7 @@ export class Viewer {
       source: { kind: 'simulated', label: '模拟班次', asOf: Date.now() },
       exaggeration: 1,
       quality: this.quality,
+      service: loaded.network.service,
     });
   }
 
@@ -207,6 +226,7 @@ export class Viewer {
     this.camera.updateProjectionMatrix();
     this.labelRenderer.setSize(width, height);
     this.terrain.setViewport(height, this.camera.fov);
+    this.stationDetail.resizeMetrics(height, this.camera.fov);
   };
 
   private onVisibility = (): void => {
@@ -278,15 +298,27 @@ export class Viewer {
       };
     }
 
+    let tunnelActive = false;
+    let tunnelGeo: LineGeometry | null = null;
+    let tunnelS = 0;
+    let tunnelDirection: 0 | 1 = 0;
+
     if (this.followId) {
       const train = this.currentTrains.find((t) => t.id === this.followId);
       if (train) {
         this.followMissCount = 0;
         const pose = this.trains.poseOf(train, this.transit.geometries);
         if (pose) {
-          const geo = this.transit.geometries.get(train.lineId);
+          const geo = this.transit.geometries.get(train.lineId) || null;
           const s = train.direction === 0 ? train.distance : (geo?.length || 0) - train.distance;
-          this.cameraController.updateFollowPose(pose, !!geo?.isInsideTunnel(s));
+          if (geo) {
+            const cameraS = s + (train.direction === 0 ? -30 : 30);
+            tunnelActive = geo.isInsideTunnel(s) || geo.isInsideTunnel(cameraS);
+            tunnelGeo = geo;
+            tunnelS = s;
+            tunnelDirection = train.direction;
+          }
+          this.cameraController.updateFollowPose(pose, tunnelActive);
         }
       } else {
         this.followMissCount++;
@@ -297,13 +329,28 @@ export class Viewer {
       }
     }
 
+    if (tunnelActive && tunnelGeo) {
+      this.tunnel.update(tunnelGeo, tunnelS, tunnelDirection, true);
+    } else {
+      this.tunnel.update(null, 0, 0, false);
+    }
+    this.tunnelActiveView = tunnelActive;
+    this.transit.group.visible = !tunnelActive;
+    this.transit.labelGroup.visible = !tunnelActive;
+    this.stationDetail.group.visible = !tunnelActive;
+
     this.cameraController.update(dt);
 
+    const overview = this.camera.position.y / Math.max(0.5, this.exaggeration) > 5200;
     this.terrain.update(this.camera, now);
     if (this.frameIndex % 6 === 0) this.buildings.update(this.camera);
     if (this.frameIndex % 10 === 0) this.water.update(this.camera);
-    this.transit.setOverviewMode(this.camera.position.y / Math.max(0.5, this.exaggeration) > 5200);
-    this.trains.setOverviewMode(this.camera.position.y / Math.max(0.5, this.exaggeration) > 5200);
+    this.transit.setOverviewMode(overview);
+    this.trains.setOverviewMode(overview);
+    this.stationDetail.update(this.camera, overview);
+    this.transit.setStationMarkersHidden(
+      tunnelActive ? EMPTY_STATIONS : this.stationDetail.getDetailedStationIds(),
+    );
     this.transit.update(this.camera);
     this.trains.update(this.currentTrains, this.transit.geometries, this.camera);
 
@@ -346,21 +393,25 @@ export class Viewer {
   }
 
   private pushUiState(): void {
+    const snapshot = store.getSnapshot();
+    const nowSec = this.clock.timeSec;
     const trains: TrainInfo[] = this.currentTrains.map((t) => this.trainInfo(t));
     const followTrain = this.followId
       ? this.currentTrains.find((t) => t.id === this.followId) || null
       : null;
-    let followTunnel = false;
-    if (followTrain) {
-      const geo = this.transit.geometries.get(followTrain.lineId);
-      const s = followTrain.direction === 0 ? followTrain.distance : (geo?.length || 0) - followTrain.distance;
-      followTunnel = !!geo?.isInsideTunnel(s);
-    }
+    const stationBoard = snapshot.station
+      ? this.timetable.stationBoard(snapshot.station.id, nowSec, 2)
+      : [];
+    const lineBoard = this.selectedLineId
+      ? this.timetable.lineBoard(this.selectedLineId, nowSec)
+      : null;
     store.patch({
       trains,
       follow: followTrain ? this.trainInfo(followTrain) : null,
+      stationBoard,
+      lineBoard,
       sim: {
-        timeSec: this.clock.timeSec,
+        timeSec: nowSec,
         multiplier: this.clock.multiplier,
         paused: this.clock.paused,
       },
@@ -377,7 +428,7 @@ export class Viewer {
             asOf: this.resolved.asOf,
           }
         : { kind: 'simulated', label: '模拟班次', asOf: Date.now() },
-      followTunnel,
+      followTunnel: this.tunnelActiveView,
     });
   }
 
@@ -394,6 +445,9 @@ export class Viewer {
       speedKph: t.speedKph,
       distance: t.distance,
       progress: t.progress,
+      code: t.code,
+      status: t.status,
+      nextArrivalSec: t.nextArrivalSec,
     };
   }
 
@@ -406,6 +460,8 @@ export class Viewer {
     this.buildings.setQuality(quality);
     this.vegetation.setQuality(quality);
     this.trains.setQuality(quality);
+    this.stationDetail.setQuality(quality);
+    this.tunnel.setQuality(quality);
     this.transit.setLabelDistance(quality === 'low' ? 6000 : quality === 'medium' ? 12000 : 20000);
     this.resize();
     store.patch({ quality });
@@ -521,6 +577,8 @@ export class Viewer {
     this.cameraController.dispose();
     this.terrain.dispose();
     this.transit.dispose();
+    this.stationDetail.dispose();
+    this.tunnel.dispose();
     this.buildings.dispose();
     this.vegetation.dispose();
     this.water.dispose();

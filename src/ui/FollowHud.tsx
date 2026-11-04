@@ -1,5 +1,11 @@
 import type { ViewerApi } from '@/state/api';
-import { formatDuration, useAppState } from '@/state/store';
+import {
+  TRAIN_STATUS_LABEL,
+  directionLabel,
+  formatClockAbs,
+  formatDuration,
+  useAppState,
+} from '@/state/store';
 import { CloseIcon, TrainIcon } from './Icons';
 
 interface FollowHudProps {
@@ -11,7 +17,6 @@ export function FollowHud({ api }: FollowHudProps) {
   const train = state.follow;
   if (!train) return null;
 
-  const code = train.id.split('-').slice(-1)[0] || train.id;
   const pct = Math.min(100, Math.max(0, Math.round(train.progress * 100)));
 
   return (
@@ -26,15 +31,26 @@ export function FollowHud({ api }: FollowHudProps) {
           </span>
           <div className="follow-line-block">
             <span className="follow-line">{train.lineName}</span>
-            <span className="follow-dest">往 {train.destination}</span>
+            <span className="follow-dest">
+              往 {train.destination} · {directionLabel(train.direction)}
+            </span>
           </div>
-          <span className="follow-code">#{code}</span>
+          <span className="follow-code">#{train.code}</span>
+        </div>
+
+        <div className="follow-tags">
+          <span className={`train-status is-${train.status}`}>
+            {TRAIN_STATUS_LABEL[train.status]}
+          </span>
+          {state.followTunnel && <span className="tunnel-badge">隧道内景 · 模拟</span>}
+          {train.nextArrivalSec > 0 && (
+            <span className="follow-arrival">{formatClockAbs(train.nextArrivalSec)} 到站</span>
+          )}
         </div>
 
         <div className="follow-speed">
           <span className="speed-value">{Math.round(train.speedKph)}</span>
           <span className="speed-unit">km/h</span>
-          {state.followTunnel && <span className="tunnel-badge">隧道区间</span>}
         </div>
 
         <div className="follow-next">
@@ -44,10 +60,7 @@ export function FollowHud({ api }: FollowHudProps) {
         </div>
 
         <div className="progress-track" aria-hidden="true">
-          <span
-            className="progress-fill"
-            style={{ width: `${pct}%`, background: train.color }}
-          />
+          <span className="progress-fill" style={{ width: `${pct}%`, background: train.color }} />
         </div>
 
         <div className="follow-foot">

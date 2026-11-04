@@ -15,6 +15,10 @@ export interface TrainPose {
 
 export class TrainLayer {
   readonly mesh: THREE.InstancedMesh;
+  readonly windows: THREE.InstancedMesh;
+  readonly headlight: THREE.InstancedMesh;
+  readonly taillight: THREE.InstancedMesh;
+  readonly bogies: THREE.InstancedMesh;
   readonly points: THREE.Points;
   readonly group = new THREE.Group();
   private maxDistance = 26000;
@@ -42,6 +46,42 @@ export class TrainLayer {
     this.mesh.frustumCulled = false;
     this.mesh.count = 0;
     this.group.add(this.mesh);
+
+    const windowGeo = new THREE.BoxGeometry(2.96, 0.82, 36);
+    windowGeo.translate(0, 2.62, 0);
+    const windowMat = new THREE.MeshLambertMaterial({ color: 0x0c141b });
+    this.windows = new THREE.InstancedMesh(windowGeo, windowMat, this.capacity);
+    this.windows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.windows.frustumCulled = false;
+    this.windows.count = 0;
+    this.group.add(this.windows);
+
+    const headGeo = new THREE.BoxGeometry(1.9, 0.15, 0.1);
+    headGeo.translate(0, 2.45, 23.02);
+    const headMat = new THREE.MeshBasicMaterial({ color: 0xfff1c9, toneMapped: false });
+    this.headlight = new THREE.InstancedMesh(headGeo, headMat, this.capacity);
+    this.headlight.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.headlight.frustumCulled = false;
+    this.headlight.count = 0;
+    this.group.add(this.headlight);
+
+    const tailGeo = new THREE.BoxGeometry(1.4, 0.14, 0.1);
+    tailGeo.translate(0, 2.45, -23.02);
+    const tailMat = new THREE.MeshBasicMaterial({ color: 0xff5c50, toneMapped: false });
+    this.taillight = new THREE.InstancedMesh(tailGeo, tailMat, this.capacity);
+    this.taillight.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.taillight.frustumCulled = false;
+    this.taillight.count = 0;
+    this.group.add(this.taillight);
+
+    const bogieGeo = new THREE.BoxGeometry(2.35, 0.58, 3.8);
+    bogieGeo.translate(0, 0.29, 0);
+    const bogieMat = new THREE.MeshLambertMaterial({ color: 0x232a30 });
+    this.bogies = new THREE.InstancedMesh(bogieGeo, bogieMat, this.capacity * 2);
+    this.bogies.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.bogies.frustumCulled = false;
+    this.bogies.count = 0;
+    this.group.add(this.bogies);
 
     const dotGeo = new THREE.BufferGeometry();
     const positions = new Float32Array(this.capacity * 3);
@@ -114,8 +154,24 @@ export class TrainLayer {
       this.pos.set(x, this.tempSample.y + 0.6, z);
       this.matrix.compose(this.pos, this.quat, this.scale);
       this.mesh.setMatrixAt(count, this.matrix);
+      this.windows.setMatrixAt(count, this.matrix);
+      this.headlight.setMatrixAt(count, this.matrix);
+      this.taillight.setMatrixAt(count, this.matrix);
       this.color.set(train.color);
       this.mesh.setColorAt(count, this.color);
+
+      const bogieBase = count * 2;
+      const bogieY = this.tempSample.y + 0.08;
+      for (let bi = 0; bi < 2; bi++) {
+        const offset = bi === 0 ? -15 : 15;
+        this.pos.set(
+          x + tx * offset,
+          bogieY + grade * offset,
+          z + tz * offset,
+        );
+        this.matrix.compose(this.pos, this.quat, this.scale);
+        this.bogies.setMatrixAt(bogieBase + bi, this.matrix);
+      }
 
       this.matrix.compose(
         this.pos.set(x, this.tempSample.y + 40, z),
@@ -131,8 +187,16 @@ export class TrainLayer {
     }
 
     this.mesh.count = count;
+    this.windows.count = count;
+    this.headlight.count = count;
+    this.taillight.count = count;
+    this.bogies.count = count * 2;
     this.visibleCount = count;
     this.mesh.instanceMatrix.needsUpdate = true;
+    this.windows.instanceMatrix.needsUpdate = true;
+    this.headlight.instanceMatrix.needsUpdate = true;
+    this.taillight.instanceMatrix.needsUpdate = true;
+    this.bogies.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
     this.points.geometry.setDrawRange(0, count);
     (this.points.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
@@ -172,6 +236,18 @@ export class TrainLayer {
     this.mesh.geometry.dispose();
     (this.mesh.material as THREE.Material).dispose();
     this.mesh.dispose();
+    this.windows.geometry.dispose();
+    (this.windows.material as THREE.Material).dispose();
+    this.windows.dispose();
+    this.headlight.geometry.dispose();
+    (this.headlight.material as THREE.Material).dispose();
+    this.headlight.dispose();
+    this.taillight.geometry.dispose();
+    (this.taillight.material as THREE.Material).dispose();
+    this.taillight.dispose();
+    this.bogies.geometry.dispose();
+    (this.bogies.material as THREE.Material).dispose();
+    this.bogies.dispose();
     this.points.geometry.dispose();
     (this.points.material as THREE.Material).dispose();
     this.points.dispose();

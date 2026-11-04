@@ -171,6 +171,8 @@ export class CameraController {
   }
 
   update(dt: number): void {
+    this.updateFov(dt);
+
     if (this.flying) {
       this.flying.t += dt / this.flying.duration;
       const t = easeInOut(Math.min(1, this.flying.t));
@@ -206,21 +208,25 @@ export class CameraController {
       if (!pose) return;
       this.followBlend = Math.min(1, this.followBlend + dt / 1.15);
       const forward = new THREE.Vector3(pose.tx, pose.grade, pose.tz).normalize();
+      const behind = this.tunnel ? 29 : 26;
+      const camHeight = this.tunnel ? 4.15 : 6.0;
+      const lookAhead = this.tunnel ? 150 : 150;
+      const lookUp = this.tunnel ? 2.1 : 2.5;
       const desiredPos = new THREE.Vector3(
-        pose.x + forward.x * 26,
-        pose.y * this.exaggeration + 6.0,
-        pose.z + forward.z * 26,
+        pose.x + forward.x * behind,
+        pose.y * this.exaggeration + camHeight,
+        pose.z + forward.z * behind,
       );
       if (!this.tunnel) {
         const ground = this.terrain.heightAt(desiredPos.x, desiredPos.z) * this.exaggeration;
         desiredPos.y = Math.max(desiredPos.y, ground + 2.5);
       } else {
-        desiredPos.y = pose.y * this.exaggeration + 3.2;
+        desiredPos.y = pose.y * this.exaggeration + camHeight;
       }
       const desiredLook = new THREE.Vector3(
-        pose.x + forward.x * 150,
-        pose.y * this.exaggeration + forward.y * 150 + 2.5,
-        pose.z + forward.z * 150,
+        pose.x + forward.x * lookAhead,
+        pose.y * this.exaggeration + forward.y * lookAhead + lookUp,
+        pose.z + forward.z * lookAhead,
       );
       const k = 1 - Math.exp(-dt * (this.followBlend < 0.6 ? 5 : 9));
       this.camera.position.lerp(desiredPos, k);
@@ -248,6 +254,14 @@ export class CameraController {
 
   dispose(): void {
     this.controls.dispose();
+  }
+
+  private updateFov(dt: number): void {
+    const target = this.mode === 'follow' && this.tunnel ? 66 : 55;
+    const diff = target - this.camera.fov;
+    if (Math.abs(diff) < 0.04) return;
+    this.camera.fov += diff * (1 - Math.exp(-dt * 5));
+    this.camera.updateProjectionMatrix();
   }
 }
 

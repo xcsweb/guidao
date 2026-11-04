@@ -3,8 +3,14 @@ import type {
   CityManifest,
   CityRegistry,
   LineData,
+  ServiceConfig,
   StationData,
 } from '@/data/types';
+import type {
+  LineBoard,
+  StationCall,
+  TrainStatus,
+} from '@/sim/Timetable';
 
 export type Quality = 'low' | 'medium' | 'high';
 
@@ -20,6 +26,9 @@ export interface TrainInfo {
   speedKph: number;
   distance: number;
   progress: number;
+  code: string;
+  status: TrainStatus;
+  nextArrivalSec: number;
 }
 
 export interface LineSummary {
@@ -66,6 +75,9 @@ export interface AppState {
   };
   statsVisible: boolean;
   station: StationData | null;
+  stationBoard: StationCall[];
+  lineBoard: LineBoard | null;
+  service: ServiceConfig | null;
   followTunnel: boolean;
   source: {
     kind: 'simulated' | 'http';
@@ -93,6 +105,9 @@ const initialState: AppState = {
   stats: { fps: 0, drawCalls: 0, triangles: 0, chunks: 0 },
   statsVisible: false,
   station: null,
+  stationBoard: [],
+  lineBoard: null,
+  service: null,
   followTunnel: false,
   source: { kind: 'simulated', label: '模拟班次', asOf: 0 },
   toast: null,
@@ -164,6 +179,24 @@ export function formatClock(timeSec: number): string {
   const m = Math.floor((t - h * 3600) / 60);
   const s = Math.floor(t - h * 3600 - m * 60);
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+/** HH:mm, and “次日” for times past midnight so late services stay readable. */
+export function formatClockAbs(timeSec: number): string {
+  if (timeSec <= 0) return '—';
+  const base = formatClock(timeSec).slice(0, 5);
+  return timeSec >= 86400 ? `次日 ${base}` : base;
+}
+
+export const TRAIN_STATUS_LABEL: Record<TrainStatus, string> = {
+  running: '运行中',
+  arriving: '进站中',
+  dwelling: '停站中',
+  departing: '出站中',
+};
+
+export function directionLabel(direction: 0 | 1): string {
+  return direction === 0 ? '上行' : '下行';
 }
 
 export function formatDuration(sec: number): string {
