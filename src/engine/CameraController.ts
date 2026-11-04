@@ -210,7 +210,7 @@ export class CameraController {
       const forward = new THREE.Vector3(pose.tx, pose.grade, pose.tz).normalize();
       const behind = this.tunnel ? 29 : 26;
       const camHeight = this.tunnel ? 4.15 : 6.0;
-      const lookAhead = this.tunnel ? 150 : 150;
+      const lookAhead = 150;
       const lookUp = this.tunnel ? 2.1 : 2.5;
       const desiredPos = new THREE.Vector3(
         pose.x + forward.x * behind,

@@ -119,8 +119,8 @@ export class StationDetailLayer {
     hallGeo.translate(15.5, 3.6, 0);
     this.hall = this.instanced(hallGeo, hallMat, this.capacity);
 
-    const bandGeo = new THREE.BoxGeometry(13.15, 0.38, 16.15);
-    bandGeo.translate(15.5, 6.15, 0);
+    const bandGeo = new THREE.BoxGeometry(0.22, 0.55, 16.1);
+    bandGeo.translate(22.08, 5.45, 0);
     this.band = this.instanced(bandGeo, accentMat, this.capacity, true);
 
     const entranceGeo = new THREE.BoxGeometry(3.1, 2.4, 3.2);
@@ -295,6 +295,7 @@ export class StationDetailLayer {
     }
     for (const { model } of full) {
       detailed.add(model.id);
+      this.addMedium(model);
       this.addFull(model);
     }
 

@@ -125,7 +125,7 @@ export function App() {
   return (
     <div
       className={`app${following ? ' is-following' : ''}${
-        trainPanelOpen ? ' is-train-panel-open' : ''
+        trainPanelOpen && state.selectedLineId ? ' is-train-panel-open' : ''
       }`}
     >
       <div className="scene-shell">
