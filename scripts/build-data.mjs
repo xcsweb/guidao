@@ -180,9 +180,17 @@ function buildReport(network, manifest, extracted) {
       maxGap = Math.max(maxGap, Math.hypot(line.path[i] - line.path[i - 2], line.path[i + 1] - line.path[i - 1]));
     }
     if (maxGap > 10_000) fatal.push(`${line.name} 轨道断裂 ${(maxGap / 1000).toFixed(1)} km`);
-    else if (maxGap > 3_000) warnings.push(`${line.name} 存在 ${(maxGap / 1000).toFixed(1)} km 轨道跳变`);
+    else if (maxGap > 3_000) {
+      warnings.push(`${line.name} 最长轨道段 ${(maxGap / 1000).toFixed(1)} km（OSM 稀疏几何）`);
+    }
+    const names = new Set();
+    let previousDist = -Infinity;
     for (const st of line.stations) {
       if (!Number.isFinite(st.dist)) fatal.push(`${line.name} 车站 ${st.name} 距离无效`);
+      if (st.dist < previousDist) fatal.push(`${line.name} 车站 ${st.name} 里程倒序`);
+      if (names.has(st.name)) fatal.push(`${line.name} 车站 ${st.name} 重复`);
+      names.add(st.name);
+      previousDist = st.dist;
     }
   }
 

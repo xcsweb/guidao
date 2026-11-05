@@ -78,6 +78,8 @@ export interface StationData {
   z: number;
   lines: string[];
   elevation?: number;
+  /** Derived from the line's surface/tunnel ranges at this station. */
+  stationType?: 'underground' | 'surface' | 'mixed';
 }
 
 export interface ServiceConfig {

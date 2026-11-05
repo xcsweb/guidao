@@ -126,6 +126,13 @@ export function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [api]);
 
+  useEffect(() => {
+    if (state.station && window.innerWidth <= 960) {
+      setLinePanelOpen(false);
+      setTrainPanelOpen(false);
+    }
+  }, [state.station]);
+
   const following = state.follow !== null;
 
   return (
@@ -144,6 +151,12 @@ export function App() {
           api={api}
           open={linePanelOpen}
           onToggle={() => setLinePanelOpen((open) => !open)}
+          onSelect={(id) => {
+            if (id && window.innerWidth <= 960) {
+              setLinePanelOpen(false);
+              setTrainPanelOpen(true);
+            }
+          }}
         />
         <ControlDock api={api} />
         <TrainPanel

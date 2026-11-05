@@ -12,6 +12,7 @@ interface StationModel {
   yaw: number;
   color: string;
   station: StationData;
+  underground: boolean;
 }
 
 interface Ranked {
@@ -23,10 +24,9 @@ const UP = new THREE.Vector3(0, 1, 0);
 const ONE = new THREE.Vector3(1, 1, 1);
 
 /**
- * Procedural surface station: twin platforms, tactile edge, arched canopy,
- * station hall, entrance and line-coloured signage. All parts are instanced
- * and only stations close to the camera keep their matrices, so the cost stays
- * flat even though Chongqing has 278 stations.
+ * Surface stations have twin platforms and canopies; underground stations only
+ * expose street-level entrances, stairs and vents. Every part is instanced and
+ * only nearby stations keep matrices, so detail does not grow draw calls per station.
  */
 export class StationDetailLayer {
   readonly group = new THREE.Group();
@@ -43,6 +43,12 @@ export class StationDetailLayer {
   private hall: THREE.InstancedMesh;
   private band: THREE.InstancedMesh;
   private entrance: THREE.InstancedMesh;
+  private metroBase: THREE.InstancedMesh;
+  private metroHall: THREE.InstancedMesh;
+  private metroOpening: THREE.InstancedMesh;
+  private metroCap: THREE.InstancedMesh;
+  private metroSteps: THREE.InstancedMesh;
+  private metroVent: THREE.InstancedMesh;
   private totemPole: THREE.InstancedMesh;
   private totemSign: THREE.InstancedMesh;
 
@@ -88,6 +94,11 @@ export class StationDetailLayer {
       toneMapped: false,
     });
     const hallMat = new THREE.MeshLambertMaterial({ color: 0x969ea3 });
+    const metroGlassMat = new THREE.MeshLambertMaterial({
+      color: 0xa7c3cc,
+      emissive: 0x1a2c33,
+    });
+    const openingMat = new THREE.MeshBasicMaterial({ color: 0x10181d });
     const poleMat = new THREE.MeshLambertMaterial({ color: 0x6b7479 });
 
     const platformGeo = new THREE.BoxGeometry(3.5, 0.55, 92);
@@ -127,6 +138,32 @@ export class StationDetailLayer {
     entranceGeo.translate(23.2, 1.2, -9);
     this.entrance = this.instanced(entranceGeo, concreteDark, this.capacity);
 
+    const metroBaseGeo = new THREE.BoxGeometry(8.4, 0.24, 7);
+    metroBaseGeo.translate(9.6, 0.12, 0);
+    this.metroBase = this.instanced(metroBaseGeo, concreteDark, this.capacity * 2);
+
+    const metroHallGeo = new THREE.BoxGeometry(4.6, 3, 5.8);
+    metroHallGeo.translate(11.1, 1.72, 0);
+    this.metroHall = this.instanced(metroHallGeo, metroGlassMat, this.capacity * 2);
+
+    const metroOpeningGeo = new THREE.BoxGeometry(0.14, 2.35, 3.6);
+    metroOpeningGeo.translate(8.74, 1.35, 0);
+    this.metroOpening = this.instanced(metroOpeningGeo, openingMat, this.capacity * 2);
+
+    const metroCapGeo = new THREE.BoxGeometry(5.8, 0.26, 6.6);
+    metroCapGeo.translate(10.9, 3.34, 0);
+    this.metroCap = this.instanced(metroCapGeo, accentMat, this.capacity * 2, true);
+
+    this.metroSteps = this.instanced(
+      new THREE.BoxGeometry(0.68, 0.14, 3.4),
+      concreteDark,
+      this.capacity * 10,
+    );
+
+    const metroVentGeo = new THREE.BoxGeometry(1.6, 1.4, 2.5);
+    metroVentGeo.translate(-8.5, 0.7, 0);
+    this.metroVent = this.instanced(metroVentGeo, concreteDark, this.capacity * 2);
+
     const poleGeo = new THREE.BoxGeometry(0.24, 5.1, 0.24);
     poleGeo.translate(23.2, 2.55, 9.5);
     this.totemPole = this.instanced(poleGeo, poleMat, this.capacity);
@@ -147,6 +184,12 @@ export class StationDetailLayer {
       this.hall,
       this.band,
       this.entrance,
+      this.metroBase,
+      this.metroHall,
+      this.metroOpening,
+      this.metroCap,
+      this.metroSteps,
+      this.metroVent,
       this.totemPole,
       this.totemSign,
     );
@@ -208,6 +251,7 @@ export class StationDetailLayer {
         yaw: Math.atan2(sample.tx, sample.tz),
         color: lineColors.get(station.lines[0]) || anchor.color,
         station,
+        underground: station.stationType === 'underground',
       });
     }
     return models;
@@ -286,6 +330,12 @@ export class StationDetailLayer {
     this.hall.count = 0;
     this.band.count = 0;
     this.entrance.count = 0;
+    this.metroBase.count = 0;
+    this.metroHall.count = 0;
+    this.metroOpening.count = 0;
+    this.metroCap.count = 0;
+    this.metroSteps.count = 0;
+    this.metroVent.count = 0;
     this.totemPole.count = 0;
     this.totemSign.count = 0;
 
@@ -311,6 +361,12 @@ export class StationDetailLayer {
       this.hall,
       this.band,
       this.entrance,
+      this.metroBase,
+      this.metroHall,
+      this.metroOpening,
+      this.metroCap,
+      this.metroSteps,
+      this.metroVent,
       this.totemPole,
       this.totemSign,
     ]) {
@@ -323,6 +379,15 @@ export class StationDetailLayer {
   }
 
   private addMedium(model: StationModel): void {
+    if (model.underground) {
+      for (const z of [-16, 16]) {
+        this.write(this.metroBase, model, 0, 0, z);
+        this.write(this.metroHall, model, 0, 0, z);
+        this.write(this.metroOpening, model, 0, 0, z);
+        this.write(this.metroCap, model, 0, 0, z, true);
+      }
+      return;
+    }
     this.write(this.platformL, model, 0, 0, 0);
     this.write(this.platformR, model, 0, 0, 0);
     this.write(this.roof, model, 0, 0, 0, true);
@@ -333,6 +398,18 @@ export class StationDetailLayer {
   }
 
   private addFull(model: StationModel): void {
+    if (model.underground) {
+      for (const z of [-16, 16]) {
+        for (let i = 0; i < 5; i++) {
+          this.write(this.metroSteps, model, 6.4 + i * 0.68, 0.55 - i * 0.08, z);
+        }
+      }
+      this.write(this.metroVent, model, 0, 0, -19);
+      this.write(this.metroVent, model, 0, 0, 19);
+      this.write(this.totemPole, model, -32, 0, 0);
+      this.write(this.totemSign, model, -32, 0, 0, true);
+      return;
+    }
     this.write(this.tactileL, model, 0, 0, 0);
     this.write(this.tactileR, model, 0, 0, 0);
     for (let i = 0; i < 6; i++) {
@@ -389,6 +466,12 @@ export class StationDetailLayer {
       this.hall,
       this.band,
       this.entrance,
+      this.metroBase,
+      this.metroHall,
+      this.metroOpening,
+      this.metroCap,
+      this.metroSteps,
+      this.metroVent,
       this.totemPole,
       this.totemSign,
     ]) {

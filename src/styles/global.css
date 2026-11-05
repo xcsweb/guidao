@@ -196,6 +196,17 @@ a:focus-visible {
   box-shadow: 0 0 7px rgba(255, 255, 255, 0.55);
 }
 
+.station-label[data-kind="underground"] {
+  border-style: dashed;
+  border-color: rgba(184, 204, 229, 0.34);
+}
+
+.station-label[data-kind="underground"] .dot {
+  border-radius: 1px;
+  transform: rotate(45deg);
+  box-shadow: 0 0 0 1px rgba(224, 238, 250, 0.7), 0 0 7px rgba(184, 204, 229, 0.6);
+}
+
 .ui-layer {
   position: fixed;
   inset: 0;
@@ -1831,6 +1842,33 @@ button:disabled {
   flex-wrap: wrap;
   gap: 6px;
   margin: 10px 0 12px;
+}
+
+.station-kind {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.station-kind.is-underground {
+  border-color: rgba(139, 164, 196, 0.35);
+  color: #b8cce5;
+}
+
+.station-kind.is-surface {
+  border-color: rgba(224, 178, 93, 0.32);
+  color: #e5c98f;
+}
+
+.station-kind.is-mixed {
+  border-color: rgba(95, 211, 196, 0.32);
+  color: var(--accent-strong);
 }
 
 .station-board {

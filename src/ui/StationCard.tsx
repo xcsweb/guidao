@@ -60,6 +60,18 @@ export function StationCard({ api }: StationCardProps) {
             {line.name}
           </span>
         ))}
+        {station.stationType && (
+          <span
+            className={`station-kind is-${station.stationType}`}
+            title="根据车站所在轨道的地上、地下区间自动判断"
+          >
+            {station.stationType === 'underground'
+              ? '地下站'
+              : station.stationType === 'mixed'
+                ? '地上 / 地下混合'
+                : '地面 / 高架站'}
+          </span>
+        )}
       </div>
 
       <div className="station-board">

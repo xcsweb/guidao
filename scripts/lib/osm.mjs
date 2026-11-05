@@ -23,12 +23,30 @@ const LINE_META = {
   4: { ref: '4', name: '4号线', color: '#ED8E00' },
   5: { ref: '5', name: '5号线', color: '#0096DA' },
   6: { ref: '6', name: '6号线', color: '#DB5A7B' },
+  '6-east': { ref: '6', name: '6号线东站段', color: '#DB5A7B' },
   '6-guobo': { ref: '6', name: '国博线', color: '#DB5A7B' },
   9: { ref: '9', name: '9号线', color: '#811C2A' },
   10: { ref: '10', name: '10号线', color: '#61279E' },
   18: { ref: '18', name: '18号线', color: '#1CD4C6' },
   jiangtiao: { ref: 'JT', name: '江跳线', color: '#0056B8' },
   bitong: { ref: 'BT', name: '璧铜线', color: '#0056B8' },
+};
+
+// Route relations are authoritative for line membership. Nearby nodes are only
+// used for known operational stations missing from a relation, never merely
+// because another line's station happens to be close to the track.
+const EXTRA_STATIONS = {
+  1: new Set(['佛图关']),
+  18: new Set(['歇台子']),
+};
+
+// Stations explicitly marked 暂未开通 by Chongqing Rail Transit's line guide.
+const UNOPENED_STATIONS = {
+  4: new Set(['港城']),
+  9: new Set(['新桥', '邮轮母港']),
+  10: new Set(['南坪']),
+  jiangtiao: new Set(['几江', '鼎山']),
+  bitong: new Set(['青龙湖']),
 };
 
 const RIVER_WIDTH = {
@@ -68,6 +86,7 @@ function classifyRelation(tags) {
   const ref = (tags.ref || '').trim();
   if (!ref) return null;
   if (name.includes('快速') || name.includes('直通')) return null;
+  if (ref === '6' && name.includes('重庆东站')) return { key: '6-east', loop: false };
   if (name.includes('国博支线')) return { key: '6-guobo', loop: false };
   if (name.includes('空港支线')) return { key: '3-airport', loop: false };
   if (ref === '环') return { key: 'loop', loop: true };
@@ -211,21 +230,23 @@ export async function extractOsm(pbfPath, city, { log = console.log } = {}) {
       continue;
     }
 
-    let stationEntries = collectStations(chosen, built, nodes, stationNodes, projection);
+    let stationEntries = collectStations(key, chosen, built, nodes, stationNodes, projection);
+    const endpoints = relationTermini(key, chosen, nodes);
     if (stationEntries.length < 2) {
       warnings.push(`线路 ${meta.name} 车站不足 2 座，已跳过`);
       continue;
     }
 
-    if (key !== 'loop' && stationEntries.length >= 4) {
+    if (key !== 'loop' && stationEntries.length >= 4 && endpoints) {
       const stitched = stitchLine(
         key,
-        stationEntries[0],
-        stationEntries[stationEntries.length - 1],
+        endpoints[0],
+        endpoints[1],
         boundsOfPoints(built.flat),
         lineWays,
         nodes,
         projection,
+        new Set(chosen.members.filter((member) => member.type === 'way').map((member) => member.ref)),
       );
       if (stitched && stitched.points.length > 5) {
         const relationLength = pathLength(built.points);
@@ -244,14 +265,11 @@ export async function extractOsm(pbfPath, city, { log = console.log } = {}) {
           );
         }
         const firstDist = projectPointOnPolyline(
-          ...projection.toLocal(stationEntries[0].lon, stationEntries[0].lat),
+          ...projection.toLocal(endpoints[0].lon, endpoints[0].lat),
           stitchedPts,
         ).dist;
         const lastDist = projectPointOnPolyline(
-          ...projection.toLocal(
-            stationEntries[stationEntries.length - 1].lon,
-            stationEntries[stationEntries.length - 1].lat,
-          ),
+          ...projection.toLocal(endpoints[1].lon, endpoints[1].lat),
           stitchedPts,
         ).dist;
         if (
@@ -351,7 +369,7 @@ export async function extractOsm(pbfPath, city, { log = console.log } = {}) {
 }
 
 function lineOrder(id) {
-  const order = ['loop', '1', '2', '3', '3-airport', '4', '5', '6', '6-guobo', '9', '10', '18', 'jiangtiao', 'bitong'];
+  const order = ['loop', '1', '2', '3', '3-airport', '4', '5', '6', '6-east', '6-guobo', '9', '10', '18', 'jiangtiao', 'bitong'];
   const idx = order.indexOf(id);
   return idx === -1 ? 99 : idx;
 }
@@ -477,12 +495,13 @@ function buildSurfaceRanges(built, lineLength) {
 function matchLineWay(tags, key) {
   const ref = String(tags.ref || '');
   const name = String(tags.name || '');
-  if (!ref && !name) return true;
+  if (!ref && !name) return false;
   if (key === 'loop') return ref === '环';
   if (key === '3-airport') return ref === '3' && name.includes('空港');
   if (key === '6-guobo') return ref === '6' && name.includes('国博');
+  if (key === '6-east') return ref === '6' && name.includes('重庆东站');
   if (key === '3') return ref === '3' && !name.includes('空港');
-  if (key === '6') return ref === '6' && !name.includes('国博');
+  if (key === '6') return ref === '6' && !name.includes('国博') && !name.includes('重庆东站');
   if (key === 'jiangtiao') return ref === 'JT' || name.includes('江跳');
   if (key === 'bitong') return ref === 'BT' || name.includes('璧铜');
   if (['1', '2', '4', '5', '9', '10', '18'].includes(key)) {
@@ -496,14 +515,16 @@ function stitchKey(p) {
 }
 
 /** Rebuild a line's track by walking all same-line OSM ways between the two terminus stations. */
-function stitchLine(key, startStation, endStation, corridorBounds, lineWays, nodes, projection) {
+function stitchLine(key, startStation, endStation, corridorBounds, lineWays, nodes, projection, relationWayIds) {
   const [sx, sz] = projection.toLocal(startStation.lon, startStation.lat);
   const [ex, ez] = projection.toLocal(endStation.lon, endStation.lat);
   const margin = 2600;
   const edges = [];
 
   for (const way of lineWays) {
-    if (!matchLineWay(way.tags, key)) continue;
+    // Untagged tracks are only trusted when the selected route relation
+    // explicitly contains them; otherwise they can connect a different line.
+    if (!relationWayIds.has(way.id) && !matchLineWay(way.tags, key)) continue;
     const pts = way.refs
       .map((ref) => nodes.get(ref))
       .filter((n) => n && n.lon != null)
@@ -635,16 +656,31 @@ function stitchLine(key, startStation, endStation, corridorBounds, lineWays, nod
   return { flat, points, bridgeRanges, tunnelRanges };
 }
 
-function collectStations(rel, built, nodes, stationNodes, projection) {
+function relationTermini(key, rel, nodes) {
+  const unopened = UNOPENED_STATIONS[key] || new Set();
+  const stops = [];
+  for (const member of rel.members) {
+    if (member.type !== 'node') continue;
+    const node = nodes.get(member.ref);
+    const name = node?.tags?.name || node?.tags?.['name:zh'];
+    if (!node || !name || unopened.has(name)) continue;
+    stops.push({ name, lon: node.lon, lat: node.lat });
+  }
+  return stops.length >= 2 ? [stops[0], stops[stops.length - 1]] : null;
+}
+
+function collectStations(key, rel, built, nodes, stationNodes, projection) {
   const pts = built.points;
   const candidates = [];
+  const extras = EXTRA_STATIONS[key] || new Set();
+  const unopened = UNOPENED_STATIONS[key] || new Set();
 
   for (const member of rel.members) {
     if (member.type !== 'node') continue;
     const node = nodes.get(member.ref);
     if (!node) continue;
     const name = node.tags?.name || node.tags?.['name:zh'];
-    if (!name) continue;
+    if (!name || unopened.has(name)) continue;
     const [x, z] = projection.toLocal(node.lon, node.lat);
     candidates.push({
       name,
@@ -655,8 +691,11 @@ function collectStations(rel, built, nodes, stationNodes, projection) {
     });
   }
 
+  const memberCount = candidates.length;
   const pathBounds = boundsOfPoints(built.flat);
   for (const node of stationNodes) {
+    const name = node.tags.name;
+    if (unopened.has(name) || (memberCount >= 2 && !extras.has(name))) continue;
     const [x, z] = projection.toLocal(node.lon, node.lat);
     if (x < pathBounds[0] - 3000 || x > pathBounds[2] + 3000 || z < pathBounds[1] - 3000 || z > pathBounds[3] + 3000) {
       continue;
@@ -664,7 +703,7 @@ function collectStations(rel, built, nodes, stationNodes, projection) {
     const proj = projectPointOnPolyline(x, z, pts);
     if (proj.dist > 260) continue;
     candidates.push({
-      name: node.tags.name,
+      name,
       lon: node.lon,
       lat: node.lat,
       dist: proj.along,

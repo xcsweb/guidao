@@ -154,11 +154,11 @@ export class CameraController {
     const dir = new THREE.Vector3(this.camera.position.x - x, 0, this.camera.position.z - z);
     if (dir.lengthSq() < 1) dir.set(0, 0, 1);
     dir.normalize();
-    const distance = 2600;
+    const distance = 760;
     const to = {
       position: new THREE.Vector3(
         x + dir.x * distance,
-        Math.max(this.camera.position.y, target.y + 1500),
+        target.y + 520,
         z + dir.z * distance,
       ),
       target,

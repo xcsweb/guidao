@@ -7,14 +7,16 @@ interface LinePanelProps {
   api: ViewerApi | null;
   open: boolean;
   onToggle: () => void;
+  onSelect: (id: string | null) => void;
 }
 
-export function LinePanel({ api, open, onToggle }: LinePanelProps) {
+export function LinePanel({ api, open, onToggle, onSelect }: LinePanelProps) {
   const state = useAppState();
   const { lines, selectedLineId } = state;
   const selectLine = (id: string | null) => {
     if (!api) return;
     api.selectLine(id);
+    onSelect(id);
   };
 
   if (!open) {

@@ -257,7 +257,14 @@ export class Viewer {
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
       -((event.clientY - rect.top) / rect.height) * 2 + 1,
     );
-    const station = this.transit.pickStation(this.camera, ndc);
+    const station = this.transit.pickStation(
+      this.camera,
+      ndc,
+      rect.width,
+      rect.height,
+      rect.left,
+      rect.top,
+    );
     if (station) {
       store.patch({ station });
     } else {

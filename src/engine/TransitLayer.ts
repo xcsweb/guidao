@@ -67,6 +67,19 @@ export class TransitLayer {
     }
 
     this.stationOrder = network.stations.filter((s) => this.stationPositions.has(s.id));
+    for (const station of this.stationOrder) {
+      const ranges = new Set<boolean>();
+      for (const lineId of station.lines) {
+        const geo = this.geometries.get(lineId);
+        const point = geo?.stations.find((item) => item.id === station.id);
+        if (geo && point) ranges.add(geo.isInsideTunnel(point.s));
+      }
+      station.stationType = ranges.size > 1
+        ? 'mixed'
+        : ranges.has(true)
+          ? 'underground'
+          : 'surface';
+    }
     this.stationMesh = this.buildStationMarkers();
     this.ringMesh = this.buildStationRings();
     this.buildLabels(network.stations);
@@ -204,11 +217,13 @@ export class TransitLayer {
     const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, this.stationOrder.length));
     const m = new THREE.Matrix4();
     const color = new THREE.Color();
+    const undergroundColor = new THREE.Color(0x9db5c9);
     this.stationOrder.forEach((st, i) => {
       const pos = this.stationPositions.get(st.id)!;
       m.makeTranslation(pos.x, pos.y + 0.6, pos.z);
       mesh.setMatrixAt(i, m);
       color.set(pos.color);
+      if (st.stationType === 'underground') color.lerp(undergroundColor, 0.72);
       mesh.setColorAt(i, color);
     });
     mesh.instanceMatrix.needsUpdate = true;
@@ -225,9 +240,17 @@ export class TransitLayer {
       if (!pos) continue;
       const el = document.createElement('div');
       el.className = 'station-label';
+      if (st.stationType) el.dataset.kind = st.stationType;
+      const kindLabel = st.stationType === 'underground'
+        ? '地下站'
+        : st.stationType === 'mixed'
+          ? '地上 / 地下混合'
+          : '地面 / 高架站';
+      el.title = `${st.name} · ${kindLabel}`;
       el.innerHTML = `<span class="dot" style="background:${pos.color}"></span><span>${st.name}</span>`;
       const obj = new CSS2DObject(el);
-      obj.position.set(pos.x, pos.y + 16, pos.z);
+      const labelHeight = st.stationType === 'underground' ? 32 : 16;
+      obj.position.set(pos.x, pos.y + labelHeight, pos.z);
       obj.visible = false;
       this.labelGroup.add(obj);
       this.labels.push({ object: obj, stationId: st.id, x: pos.x, z: pos.z, y: pos.y });
@@ -353,12 +376,61 @@ export class TransitLayer {
     return false;
   }
 
-  pickStation(camera: THREE.PerspectiveCamera, pointer: THREE.Vector2): StationData | null {
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(pointer, camera);
-    const hits = raycaster.intersectObject(this.stationMesh, false);
-    if (!hits.length || hits[0].instanceId == null) return null;
-    return this.stationOrder[hits[0].instanceId] || null;
+  pickStation(
+    camera: THREE.PerspectiveCamera,
+    pointer: THREE.Vector2,
+    viewportWidth: number,
+    viewportHeight: number,
+    viewportLeft = 0,
+    viewportTop = 0,
+  ): StationData | null {
+    const tolerance = viewportWidth < 768 ? 24 : 18;
+    const clientX = viewportLeft + ((pointer.x + 1) * viewportWidth) / 2;
+    const clientY = viewportTop + ((1 - pointer.y) * viewportHeight) / 2;
+    let bestDistance = Infinity;
+    let best: StationData | null = null;
+
+    if (this.labelsEnabled && !this.overview) {
+      // CSS2D labels are the visible hit targets. Reading their screen rects keeps
+      // picking aligned with the rendered text, including dynamic pixel ratios.
+      for (const label of this.labels) {
+        if (!label.object.visible) continue;
+        const rect = label.object.element.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        const dx = clientX - (rect.left + rect.width / 2);
+        const dy = clientY - (rect.top + rect.height / 2);
+        const distance = dx * dx + dy * dy;
+        const insideLabel = Math.abs(dx) <= rect.width / 2 + 6 &&
+          Math.abs(dy) <= rect.height / 2 + 6;
+        if ((insideLabel || distance <= tolerance * tolerance) && distance < bestDistance) {
+          bestDistance = distance;
+          best = this.getStation(label.stationId);
+        }
+      }
+      return best;
+    }
+
+    // With labels hidden, retain picking on the projected 3D station markers.
+    const world = new THREE.Vector3();
+    const view = new THREE.Vector3();
+    bestDistance = tolerance * tolerance;
+    for (const station of this.stationOrder) {
+      const pos = this.stationPositions.get(station.id);
+      if (!pos) continue;
+      world.set(pos.x, pos.y + 16, pos.z);
+      view.copy(world).applyMatrix4(camera.matrixWorldInverse);
+      if (view.z >= -camera.near) continue;
+      world.project(camera);
+      if (world.z < -1 || world.z > 1) continue;
+      const dx = ((world.x - pointer.x) * viewportWidth) / 2;
+      const dy = ((world.y - pointer.y) * viewportHeight) / 2;
+      const distance = dx * dx + dy * dy;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = station;
+      }
+    }
+    return best;
   }
 
   highLightStation(id: string | null): void {
