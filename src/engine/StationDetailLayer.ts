@@ -92,15 +92,15 @@ export class StationDetailLayer {
 
     const platformGeo = new THREE.BoxGeometry(3.5, 0.55, 92);
     this.platformL = this.instanced(platformGeo.clone(), concrete, this.capacity);
-    this.platformL.geometry.translate(-4.35, 0.72, 0);
+    this.platformL.geometry.translate(-5.15, 0.72, 0);
     this.platformR = this.instanced(platformGeo.clone(), concrete, this.capacity);
-    this.platformR.geometry.translate(4.35, 0.72, 0);
+    this.platformR.geometry.translate(5.15, 0.72, 0);
 
     const tactileGeo = new THREE.BoxGeometry(0.36, 0.05, 88);
     this.tactileL = this.instanced(tactileGeo.clone(), tactileMat, this.capacity);
-    this.tactileL.geometry.translate(-2.85, 1.035, 0);
+    this.tactileL.geometry.translate(-3.65, 1.035, 0);
     this.tactileR = this.instanced(tactileGeo.clone(), tactileMat, this.capacity);
-    this.tactileR.geometry.translate(2.85, 1.035, 0);
+    this.tactileR.geometry.translate(3.65, 1.035, 0);
 
     const roofGeo = buildArchRoofGeometry(15.6, 86, 4.55, 1.15, 8);
     this.roof = this.instanced(roofGeo, roofMat, this.capacity, true);

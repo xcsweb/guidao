@@ -1,7 +1,14 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { Quality } from '@/state/store';
 import type { LineGeometry, PathSample } from './LineGeometry';
 import type { SimTrain } from '@/sim/Timetable';
+
+const CAR_OFFSETS = [-15, 0, 15] as const;
+const CAR_LENGTH = 13.6;
+const BODY_BOTTOM = 0.56;
+const RAIL_TOP = 0.02;
+const LANE_OFFSET = 1.58;
 
 export interface TrainPose {
   x: number;
@@ -10,6 +17,9 @@ export interface TrainPose {
   tx: number;
   tz: number;
   grade: number;
+  lookX: number;
+  lookY: number;
+  lookZ: number;
   speedKph: number;
 }
 
@@ -24,8 +34,12 @@ export class TrainLayer {
   private maxDistance = 26000;
   private capacity = 640;
   private visibleCount = 0;
+  private followedId: string | null = null;
+  private localOnly = false;
   private tempSample: PathSample = { x: 0, y: 0, z: 0, tx: 0, tz: 0 };
   private tempSample2: PathSample = { x: 0, y: 0, z: 0, tx: 0, tz: 0 };
+  private carSample: PathSample = { x: 0, y: 0, z: 0, tx: 0, tz: 0 };
+  private carSample2: PathSample = { x: 0, y: 0, z: 0, tx: 0, tz: 0 };
   private overview = false;
   private matrix = new THREE.Matrix4();
   private basis = new THREE.Matrix4();
@@ -38,26 +52,30 @@ export class TrainLayer {
   private color = new THREE.Color();
 
   constructor() {
-    const geo = new THREE.BoxGeometry(2.9, 3.3, 46);
-    geo.translate(0, 1.65, 0);
+    const geo = new RoundedBoxGeometry(2.9, 3.15, CAR_LENGTH, 1, 0.14);
+    geo.translate(0, 1.575, 0);
     const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    this.mesh = new THREE.InstancedMesh(geo, mat, this.capacity);
+    this.mesh = new THREE.InstancedMesh(geo, mat, this.capacity * CAR_OFFSETS.length);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
     this.mesh.count = 0;
     this.group.add(this.mesh);
 
-    const windowGeo = new THREE.BoxGeometry(2.96, 0.82, 36);
-    windowGeo.translate(0, 2.62, 0);
-    const windowMat = new THREE.MeshLambertMaterial({ color: 0x0c141b });
-    this.windows = new THREE.InstancedMesh(windowGeo, windowMat, this.capacity);
+    const windowGeo = new RoundedBoxGeometry(2.94, 0.78, CAR_LENGTH - 2.3, 1, 0.08);
+    windowGeo.translate(0, 2.42, 0);
+    const windowMat = new THREE.MeshLambertMaterial({ color: 0x101c25 });
+    this.windows = new THREE.InstancedMesh(
+      windowGeo,
+      windowMat,
+      this.capacity * CAR_OFFSETS.length,
+    );
     this.windows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.windows.frustumCulled = false;
     this.windows.count = 0;
     this.group.add(this.windows);
 
     const headGeo = new THREE.BoxGeometry(1.9, 0.15, 0.1);
-    headGeo.translate(0, 2.45, 23.02);
+    headGeo.translate(0, 2.35, CAR_LENGTH / 2 + 0.03);
     const headMat = new THREE.MeshBasicMaterial({ color: 0xfff1c9, toneMapped: false });
     this.headlight = new THREE.InstancedMesh(headGeo, headMat, this.capacity);
     this.headlight.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -66,7 +84,7 @@ export class TrainLayer {
     this.group.add(this.headlight);
 
     const tailGeo = new THREE.BoxGeometry(1.4, 0.14, 0.1);
-    tailGeo.translate(0, 2.45, -23.02);
+    tailGeo.translate(0, 2.35, -CAR_LENGTH / 2 - 0.03);
     const tailMat = new THREE.MeshBasicMaterial({ color: 0xff5c50, toneMapped: false });
     this.taillight = new THREE.InstancedMesh(tailGeo, tailMat, this.capacity);
     this.taillight.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -74,10 +92,14 @@ export class TrainLayer {
     this.taillight.count = 0;
     this.group.add(this.taillight);
 
-    const bogieGeo = new THREE.BoxGeometry(2.35, 0.58, 3.8);
-    bogieGeo.translate(0, 0.29, 0);
+    const bogieGeo = new THREE.BoxGeometry(2.35, 0.68, 2.8);
+    bogieGeo.translate(0, 0.34, 0);
     const bogieMat = new THREE.MeshLambertMaterial({ color: 0x232a30 });
-    this.bogies = new THREE.InstancedMesh(bogieGeo, bogieMat, this.capacity * 2);
+    this.bogies = new THREE.InstancedMesh(
+      bogieGeo,
+      bogieMat,
+      this.capacity * CAR_OFFSETS.length * 2,
+    );
     this.bogies.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.bogies.frustumCulled = false;
     this.bogies.count = 0;
@@ -110,6 +132,19 @@ export class TrainLayer {
   setOverviewMode(overview: boolean): void {
     this.overview = overview;
     this.points.visible = overview;
+    this.mesh.visible = !overview;
+    this.windows.visible = !overview;
+    this.headlight.visible = !overview;
+    this.taillight.visible = !overview;
+    this.bogies.visible = !overview;
+  }
+
+  setFollowedTrain(id: string | null): void {
+    this.followedId = id;
+  }
+
+  setLocalOnly(localOnly: boolean): void {
+    this.localOnly = localOnly;
   }
 
   setQuality(quality: Quality): void {
@@ -117,117 +152,132 @@ export class TrainLayer {
   }
 
   update(trains: SimTrain[], geometries: Map<string, LineGeometry>, camera: THREE.PerspectiveCamera): void {
-    let count = 0;
+    let trainCount = 0;
+    let carCount = 0;
+    let bogieCount = 0;
     const camX = camera.position.x;
     const camZ = camera.position.z;
-    const max2 = this.overview ? Infinity : this.maxDistance * this.maxDistance;
+    const maxDistance = this.localOnly && !this.overview ? 1000 : this.maxDistance;
+    const max2 = this.overview ? Infinity : maxDistance * maxDistance;
+    const posAttr = this.points.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const colorAttr = this.points.geometry.getAttribute('color') as THREE.BufferAttribute;
 
     for (const train of trains) {
-      if (count >= this.capacity) break;
+      if (trainCount >= this.capacity) break;
+      if (train.id === this.followedId && !this.overview) continue;
       const geo = geometries.get(train.lineId);
       if (!geo) continue;
+      const direction = train.direction === 0 ? 1 : -1;
       const s = train.direction === 0 ? train.distance : geo.length - train.distance;
       geo.sampleAt(s, this.tempSample);
-      const x = this.tempSample.x;
-      const z = this.tempSample.z;
-      const dx = x - camX;
-      const dz = z - camZ;
+      const centerLaneX = -this.tempSample.tz * direction * LANE_OFFSET;
+      const centerLaneZ = this.tempSample.tx * direction * LANE_OFFSET;
+      const centerX = this.tempSample.x + centerLaneX;
+      const centerY = this.tempSample.y;
+      const centerZ = this.tempSample.z + centerLaneZ;
+      const dx = centerX - camX;
+      const dz = centerZ - camZ;
       if (dx * dx + dz * dz > max2) continue;
 
-      let tx = this.tempSample.tx;
-      let tz = this.tempSample.tz;
-      if (train.direction === 1) {
-        tx = -tx;
-        tz = -tz;
-      }
-      const ahead = s + (train.direction === 0 ? 12 : -12);
-      geo.sampleAt(ahead, this.tempSample2);
-      const grade = (this.tempSample2.y - this.tempSample.y) / 12;
-
-      this.forward.set(tx, grade, tz).normalize();
-      this.up.set(0, 1, 0);
-      this.right.crossVectors(this.up, this.forward).normalize();
-      this.up.crossVectors(this.forward, this.right).normalize();
-      this.basis.makeBasis(this.right, this.up, this.forward);
-      this.quat.setFromRotationMatrix(this.basis);
-
-      this.pos.set(x, this.tempSample.y + 0.6, z);
-      this.matrix.compose(this.pos, this.quat, this.scale);
-      this.mesh.setMatrixAt(count, this.matrix);
-      this.windows.setMatrixAt(count, this.matrix);
-      this.headlight.setMatrixAt(count, this.matrix);
-      this.taillight.setMatrixAt(count, this.matrix);
       this.color.set(train.color);
-      this.mesh.setColorAt(count, this.color);
+      for (let ci = 0; !this.overview && ci < CAR_OFFSETS.length; ci++) {
+        const offset = CAR_OFFSETS[ci];
+        const carS = s + direction * offset;
+        geo.sampleAt(carS, this.carSample);
+        const tx = this.carSample.tx * direction;
+        const tz = this.carSample.tz * direction;
+        const laneX = -this.carSample.tz * direction * LANE_OFFSET;
+        const laneZ = this.carSample.tx * direction * LANE_OFFSET;
+        geo.sampleAt(carS + direction * 6, this.carSample2);
+        const grade = (this.carSample2.y - this.carSample.y) / 6;
 
-      const bogieBase = count * 2;
-      const bogieY = this.tempSample.y + 0.08;
-      for (let bi = 0; bi < 2; bi++) {
-        const offset = bi === 0 ? -15 : 15;
+        this.forward.set(tx, grade, tz).normalize();
+        this.up.set(0, 1, 0);
+        this.right.crossVectors(this.up, this.forward).normalize();
+        this.up.crossVectors(this.forward, this.right).normalize();
+        this.basis.makeBasis(this.right, this.up, this.forward);
+        this.quat.setFromRotationMatrix(this.basis);
+
         this.pos.set(
-          x + tx * offset,
-          bogieY + grade * offset,
-          z + tz * offset,
+          this.carSample.x + laneX,
+          this.carSample.y + BODY_BOTTOM,
+          this.carSample.z + laneZ,
         );
         this.matrix.compose(this.pos, this.quat, this.scale);
-        this.bogies.setMatrixAt(bogieBase + bi, this.matrix);
+        this.mesh.setMatrixAt(carCount, this.matrix);
+        this.windows.setMatrixAt(carCount, this.matrix);
+        this.mesh.setColorAt(carCount, this.color);
+        if (ci === CAR_OFFSETS.length - 1) this.headlight.setMatrixAt(trainCount, this.matrix);
+        if (ci === 0) this.taillight.setMatrixAt(trainCount, this.matrix);
+
+        for (const bogieOffset of [-4.25, 4.25]) {
+          this.pos.set(
+            this.carSample.x + laneX + tx * bogieOffset,
+            this.carSample.y + RAIL_TOP + grade * bogieOffset,
+            this.carSample.z + laneZ + tz * bogieOffset,
+          );
+          this.matrix.compose(this.pos, this.quat, this.scale);
+          this.bogies.setMatrixAt(bogieCount++, this.matrix);
+        }
+        carCount++;
       }
 
-      this.matrix.compose(
-        this.pos.set(x, this.tempSample.y + 40, z),
-        IDENTITY_QUAT,
-        this.scale,
-      );
-      const posAttr = this.points.geometry.getAttribute('position') as THREE.BufferAttribute;
-      const colorAttr = this.points.geometry.getAttribute('color') as THREE.BufferAttribute;
-      posAttr.setXYZ(count, x, this.tempSample.y + 40, z);
-      const c = this.color;
-      colorAttr.setXYZ(count, c.r, c.g, c.b);
-      count++;
+      posAttr.setXYZ(trainCount, centerX, centerY + 40, centerZ);
+      colorAttr.setXYZ(trainCount, this.color.r, this.color.g, this.color.b);
+      trainCount++;
     }
 
-    this.mesh.count = count;
-    this.windows.count = count;
-    this.headlight.count = count;
-    this.taillight.count = count;
-    this.bogies.count = count * 2;
-    this.visibleCount = count;
+    this.mesh.count = carCount;
+    this.windows.count = carCount;
+    this.headlight.count = trainCount;
+    this.taillight.count = trainCount;
+    this.bogies.count = bogieCount;
+    this.visibleCount = trainCount;
     this.mesh.instanceMatrix.needsUpdate = true;
     this.windows.instanceMatrix.needsUpdate = true;
     this.headlight.instanceMatrix.needsUpdate = true;
     this.taillight.instanceMatrix.needsUpdate = true;
     this.bogies.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
-    this.points.geometry.setDrawRange(0, count);
-    (this.points.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
-    (this.points.geometry.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
+    this.points.geometry.setDrawRange(0, trainCount);
+    posAttr.needsUpdate = true;
+    colorAttr.needsUpdate = true;
   }
 
   getCount(): number {
     return this.visibleCount;
   }
 
-  poseOf(train: SimTrain, geometries: Map<string, LineGeometry>): TrainPose | null {
+  poseOf(
+    train: SimTrain,
+    geometries: Map<string, LineGeometry>,
+    cabOffset = 18.6,
+  ): TrainPose | null {
     const geo = geometries.get(train.lineId);
     if (!geo) return null;
-    const s = train.direction === 0 ? train.distance : geo.length - train.distance;
+    const direction = train.direction === 0 ? 1 : -1;
+    const centerS = train.direction === 0 ? train.distance : geo.length - train.distance;
+    const s = centerS + direction * cabOffset;
     geo.sampleAt(s, this.tempSample);
-    let tx = this.tempSample.tx;
-    let tz = this.tempSample.tz;
-    if (train.direction === 1) {
-      tx = -tx;
-      tz = -tz;
-    }
-    const aheadS = s + (train.direction === 0 ? 10 : -10);
-    geo.sampleAt(aheadS, this.tempSample2);
-    const grade = (this.tempSample2.y - this.tempSample.y) / 10;
+    const tx = this.tempSample.tx * direction;
+    const tz = this.tempSample.tz * direction;
+    const laneX = -this.tempSample.tz * direction * LANE_OFFSET;
+    const laneZ = this.tempSample.tx * direction * LANE_OFFSET;
+    geo.sampleAt(s + direction * 6, this.tempSample2);
+    const grade = (this.tempSample2.y - this.tempSample.y) / 6;
+    geo.sampleAt(s + direction * 85, this.tempSample2);
+    const lookLaneX = -this.tempSample2.tz * direction * LANE_OFFSET;
+    const lookLaneZ = this.tempSample2.tx * direction * LANE_OFFSET;
     return {
-      x: this.tempSample.x,
+      x: this.tempSample.x + laneX,
       y: this.tempSample.y,
-      z: this.tempSample.z,
+      z: this.tempSample.z + laneZ,
       tx,
       tz,
       grade,
+      lookX: this.tempSample2.x + lookLaneX,
+      lookY: this.tempSample2.y,
+      lookZ: this.tempSample2.z + lookLaneZ,
       speedKph: train.speedKph,
     };
   }
@@ -253,5 +303,3 @@ export class TrainLayer {
     this.points.dispose();
   }
 }
-
-const IDENTITY_QUAT = new THREE.Quaternion();

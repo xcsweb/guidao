@@ -262,8 +262,11 @@ export class TransitLayer {
     if (this.overview === overview) return;
     this.overview = overview;
     for (const visual of this.visuals.values()) {
-      visual.aura.visible = overview;
+      visual.aura.visible = false;
       visual.overview.visible = overview;
+      visual.casing.visible = !overview;
+      visual.glow.visible = !overview;
+      visual.core.visible = !overview;
     }
     if (overview) {
       for (const label of this.labels) label.object.visible = false;

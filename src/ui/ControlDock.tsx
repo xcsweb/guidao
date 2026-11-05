@@ -27,8 +27,9 @@ export function ControlDock({ api }: ControlDockProps) {
   const exaggerationText = `×${exaggeration.toFixed(1)}`;
 
   return (
-    <div className="control-dock glass-panel" role="toolbar" aria-label="场景控制">
-      <button
+    <>
+      <div className="control-dock glass-panel" role="toolbar" aria-label="场景控制">
+        <button
         type="button"
         className={`dock-play${sim.paused ? ' is-paused' : ''}`}
         onClick={() => api?.togglePause()}
@@ -133,6 +134,33 @@ export function ControlDock({ api }: ControlDockProps) {
         <ResetIcon width={15} height={15} />
         <span>重置视角</span>
       </button>
-    </div>
+      </div>
+
+      <div className="map-navigation glass-panel" aria-label="地图导航">
+        <div className="map-zoom-buttons">
+          <button
+            type="button"
+            onClick={() => api?.zoomBy(0.78)}
+            disabled={disabled || !!state.follow}
+            aria-label="放大地图"
+            title="放大（+）"
+          >
+            +
+          </button>
+          <button
+            type="button"
+            onClick={() => api?.zoomBy(1.28)}
+            disabled={disabled || !!state.follow}
+            aria-label="缩小地图"
+            title="缩小（-）"
+          >
+            −
+          </button>
+        </div>
+        <span className="map-nav-divider" aria-hidden="true" />
+        <span className="map-gesture-hint">左键拖动平移 · 滚轮缩放 · 右键旋转</span>
+        <span className="map-touch-hint">单指平移 · 双指缩放与平移</span>
+      </div>
+    </>
   );
 }

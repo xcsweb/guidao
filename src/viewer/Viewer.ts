@@ -38,8 +38,6 @@ void main() {
   gl_FragColor = vec4(col, 1.0);
 }`;
 
-const EMPTY_STATIONS = new Set<string>();
-
 export class Viewer {
   readonly api: ViewerApi;
   private canvas: HTMLCanvasElement;
@@ -79,6 +77,9 @@ export class Viewer {
   private uiTimer = 0;
   private slowTimer = 0;
   private autoDegraded = false;
+  private resolutionScale = 1;
+  private resolutionCooldown = 0;
+  private fastTimer = 0;
   private frameIndex = 0;
   private toastTimer = 0;
   private pointerStart: { x: number; y: number } | null = null;
@@ -101,7 +102,7 @@ export class Viewer {
     this.renderer.toneMappingExposure = 1.12;
     this.renderer.setClearColor(0x0a1218, 1);
 
-    this.camera = new THREE.PerspectiveCamera(55, 1, 2, 240000);
+    this.camera = new THREE.PerspectiveCamera(55, 1, 0.2, 240000);
     this.scene.fog = new THREE.FogExp2(0x33424c, 0.000022);
     this.scene.add(this.root);
     this.root.add(new THREE.AmbientLight(0x597082, 0.5));
@@ -299,6 +300,8 @@ export class Viewer {
     }
 
     let tunnelActive = false;
+    let cameraTunnel = false;
+    let tunnelDepth = 0;
     let tunnelGeo: LineGeometry | null = null;
     let tunnelS = 0;
     let tunnelDirection: 0 | 1 = 0;
@@ -312,13 +315,18 @@ export class Viewer {
           const geo = this.transit.geometries.get(train.lineId) || null;
           const s = train.direction === 0 ? train.distance : (geo?.length || 0) - train.distance;
           if (geo) {
-            const cameraS = s + (train.direction === 0 ? -30 : 30);
-            tunnelActive = geo.isInsideTunnel(s) || geo.isInsideTunnel(cameraS);
+            const cameraS = s + (train.direction === 0 ? 18.6 : -18.6);
+            cameraTunnel = geo.isInsideTunnel(cameraS);
+            tunnelActive = geo.isInsideTunnel(s) || cameraTunnel;
+            if (cameraTunnel) {
+              const range = geo.tunnels.find(([a, b]) => cameraS >= a && cameraS <= b);
+              if (range) tunnelDepth = Math.min(cameraS - range[0], range[1] - cameraS);
+            }
             tunnelGeo = geo;
             tunnelS = s;
             tunnelDirection = train.direction;
           }
-          this.cameraController.updateFollowPose(pose, tunnelActive);
+          this.cameraController.updateFollowPose(pose, cameraTunnel);
         }
       } else {
         this.followMissCount++;
@@ -334,24 +342,33 @@ export class Viewer {
     } else {
       this.tunnel.update(null, 0, 0, false);
     }
-    this.tunnelActiveView = tunnelActive;
-    this.transit.group.visible = !tunnelActive;
-    this.transit.labelGroup.visible = !tunnelActive;
-    this.stationDetail.group.visible = !tunnelActive;
+    this.tunnelActiveView = cameraTunnel;
+    this.transit.group.visible = !cameraTunnel;
+    this.transit.labelGroup.visible = !cameraTunnel;
+    this.stationDetail.group.visible = !cameraTunnel;
+    this.trains.setLocalOnly(this.followId !== null);
+    const layers = store.getSnapshot().layers;
+    this.buildings.setVisible(!cameraTunnel && layers.buildings && this.quality !== 'low');
+    this.water.setVisible(!cameraTunnel && layers.water);
+    this.vegetation.setVisible(!cameraTunnel && this.quality !== 'low');
 
     this.cameraController.update(dt);
 
     const overview = this.camera.position.y / Math.max(0.5, this.exaggeration) > 5200;
-    this.terrain.update(this.camera, now);
-    if (this.frameIndex % 6 === 0) this.buildings.update(this.camera);
-    if (this.frameIndex % 10 === 0) this.water.update(this.camera);
+    const deepTunnel = cameraTunnel && tunnelDepth > 120;
+    this.terrain.group.visible = !deepTunnel;
+    if (!deepTunnel) this.terrain.update(this.camera, now);
+    if (!cameraTunnel) {
+      if (this.frameIndex % 6 === 0) this.buildings.update(this.camera);
+      if (this.frameIndex % 10 === 0) this.water.update(this.camera);
+    }
     this.transit.setOverviewMode(overview);
     this.trains.setOverviewMode(overview);
-    this.stationDetail.update(this.camera, overview);
-    this.transit.setStationMarkersHidden(
-      tunnelActive ? EMPTY_STATIONS : this.stationDetail.getDetailedStationIds(),
-    );
-    this.transit.update(this.camera);
+    if (!cameraTunnel) {
+      this.stationDetail.update(this.camera, overview);
+      this.transit.setStationMarkersHidden(this.stationDetail.getDetailedStationIds());
+      this.transit.update(this.camera);
+    }
     this.trains.update(this.currentTrains, this.transit.geometries, this.camera);
 
     this.renderer.render(this.scene, this.camera);
@@ -378,12 +395,29 @@ export class Viewer {
   };
 
   private evaluateAutoQuality(dt: number): void {
+    void dt;
+    this.resolutionCooldown = Math.max(0, this.resolutionCooldown - 0.5);
+    if (this.fps < 44 && this.resolutionCooldown === 0 && this.resolutionScale > 0.7) {
+      this.resolutionScale = Math.max(0.7, this.resolutionScale - 0.12);
+      this.resolutionCooldown = 3;
+      this.fastTimer = 0;
+      this.applyResolution();
+    } else if (this.fps > 57) {
+      this.fastTimer += 0.5;
+    } else {
+      this.fastTimer = 0;
+    }
+    if (this.fastTimer >= 6 && this.resolutionScale < 1) {
+      this.resolutionScale = Math.min(1, this.resolutionScale + 0.08);
+      this.fastTimer = 0;
+      this.applyResolution();
+    }
+
     if (this.fps < 38 && !this.clock.paused) {
       this.slowTimer += 0.5;
     } else {
       this.slowTimer = 0;
     }
-    void dt;
     if (this.slowTimer > 5 && !this.autoDegraded && this.quality !== 'low') {
       this.autoDegraded = true;
       const next: Quality = this.quality === 'high' ? 'medium' : 'low';
@@ -451,11 +485,21 @@ export class Viewer {
     };
   }
 
+  private applyResolution(): void {
+    const cap = this.quality === 'low' ? 1 : this.quality === 'medium' ? 1.5 : 1.75;
+    const dpr = Math.max(
+      0.75,
+      Math.min(window.devicePixelRatio || 1, cap) * this.resolutionScale,
+    );
+    this.renderer.setPixelRatio(dpr);
+    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+  }
+
   private applyQuality(quality: Quality): void {
     this.quality = quality;
-    const dpr =
-      quality === 'low' ? 1 : quality === 'medium' ? Math.min(window.devicePixelRatio, 1.6) : Math.min(window.devicePixelRatio, 2);
-    this.renderer.setPixelRatio(dpr);
+    this.resolutionScale = 1;
+    this.resolutionCooldown = 2;
+    this.applyResolution();
     this.terrain.setQuality(quality);
     this.buildings.setQuality(quality);
     this.vegetation.setQuality(quality);
@@ -504,6 +548,7 @@ export class Viewer {
         }
         this.followId = id;
         this.followMissCount = 0;
+        this.trains.setFollowedTrain(id);
         this.cameraController.enterFollow();
         store.patch({ follow: this.trainInfo(train) });
       },
@@ -554,12 +599,15 @@ export class Viewer {
         store.patch({ selectedLineId: null, station: null });
       },
       setStatsVisible: (value) => store.patch({ statsVisible: value }),
+      zoomBy: (factor) => this.cameraController.zoomBy(factor),
     };
   }
 
   private exitFollow(): void {
     this.followId = null;
     this.followMissCount = 0;
+    this.trains.setFollowedTrain(null);
+    this.trains.setLocalOnly(false);
     this.cameraController.exitFollow();
     store.patch({ follow: null, followTunnel: false });
   }

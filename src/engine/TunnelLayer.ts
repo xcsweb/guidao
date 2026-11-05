@@ -179,7 +179,7 @@ export class TunnelLayer {
       !this.wasActive ||
       direction !== this.lastDirection ||
       this.lastQuality !== this.quality ||
-      moved > 5.5;
+      moved > 18;
     if (!changed) return;
     if (this.wasActive && now - this.lastBuildAt < 180) return;
     this.wasActive = true;
@@ -193,8 +193,8 @@ export class TunnelLayer {
   private rebuild(geo: LineGeometry, s: number, direction: 0 | 1): void {
     const step = this.quality === 'high' ? 6.5 : this.quality === 'medium' ? 9.5 : 14;
     const lightSpacing = this.quality === 'high' ? 18 : this.quality === 'medium' ? 23 : 30;
-    const ahead = this.quality === 'low' ? 230 : 300;
-    const behind = 140;
+    const ahead = this.quality === 'low' ? 280 : 360;
+    const behind = 160;
     const winStart = direction === 0 ? s - behind : s - ahead;
     const winEnd = direction === 0 ? s + ahead : s + behind;
 
@@ -316,15 +316,16 @@ export class TunnelLayer {
     segments: Array<[number, number]>,
     step: number,
   ): void {
-    const ballast = buildStripGeometry(geo, segments, -2.2, 2.2, -0.48, step, 2.4);
+    const lane = 1.58;
+    const ballast = buildStripGeometry(geo, segments, 0.18, 3.02, -0.48, step, 2.4, true);
     this.setGeometry(this.ballastMesh, ballast);
     this.setGeometry(
       this.railMeshL,
-      buildStripGeometry(geo, segments, -0.84, -0.68, 0.02, step),
+      buildStripGeometry(geo, segments, lane - 0.84, lane - 0.68, 0.02, step, undefined, true),
     );
     this.setGeometry(
       this.railMeshR,
-      buildStripGeometry(geo, segments, 0.68, 0.84, 0.02, step),
+      buildStripGeometry(geo, segments, lane + 0.68, lane + 0.84, 0.02, step, undefined, true),
     );
   }
 
@@ -457,8 +458,8 @@ export class TunnelLayer {
     if (!nearest || !range || range[1] - range[0] < 26) return;
 
     const side = direction === 0 ? 1 : -1;
-    const latInner = 2.25;
-    const latOuter = 4.25;
+    const latInner = 3.22;
+    const latOuter = 4.38;
     const step = this.quality === 'high' ? 6.5 : 10;
     const platform = buildStripGeometry(
       geo,
@@ -506,9 +507,9 @@ export class TunnelLayer {
       const rx = -this.sample.tz;
       const rz = this.sample.tx;
       bench.position.set(
-        this.sample.x + rx * 3.35 * side,
+        this.sample.x + rx * 4.02 * side,
         this.sample.y + 1.62,
-        this.sample.z + rz * 3.35 * side,
+        this.sample.z + rz * 4.02 * side,
       );
       bench.rotation.y = yaw;
       this.platformGroup.add(bench);
@@ -524,9 +525,9 @@ export class TunnelLayer {
       const rx = -this.sample.tz;
       const rz = this.sample.tx;
       light.position.set(
-        this.sample.x + rx * 1.4 * side,
+        this.sample.x + rx * 3.9 * side,
         this.sample.y + 4.1,
-        this.sample.z + rz * 1.4 * side,
+        this.sample.z + rz * 3.9 * side,
       );
       light.rotation.y = yaw;
       this.platformGroup.add(light);
@@ -546,9 +547,9 @@ export class TunnelLayer {
       const rx = -this.sample.tz;
       const rz = this.sample.tx;
       sign.position.set(
-        this.sample.x + rx * 1.5 * side,
+        this.sample.x + rx * 3.88 * side,
         this.sample.y + 3.55,
-        this.sample.z + rz * 1.5 * side,
+        this.sample.z + rz * 3.88 * side,
       );
       sign.rotation.y = yaw;
       sign.userData.ownMaterial = true;
@@ -667,35 +668,41 @@ function buildStripGeometry(
   yOffset: number,
   step: number,
   uvScale?: number,
+  mirrored = false,
 ): THREE.BufferGeometry | null {
   const positions: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
   let base = 0;
   const sample: PathSample = { x: 0, y: 0, z: 0, tx: 0, tz: 0 };
+  const spans: Array<[number, number]> = mirrored
+    ? [[-latB, -latA], [latA, latB]]
+    : [[latA, latB]];
   for (const [a, b] of segments) {
     const sList = makeStepList(a, b, step);
     if (sList.length < 2) continue;
-    for (const sv of sList) {
-      geo.sampleAt(sv, sample);
-      const rx = -sample.tz;
-      const rz = sample.tx;
-      for (const lat of [latA, latB]) {
-        positions.push(sample.x + rx * lat, sample.y + yOffset, sample.z + rz * lat);
+    for (const [spanA, spanB] of spans) {
+      for (const sv of sList) {
+        geo.sampleAt(sv, sample);
+        const rx = -sample.tz;
+        const rz = sample.tx;
+        for (const lat of [spanA, spanB]) {
+          positions.push(sample.x + rx * lat, sample.y + yOffset, sample.z + rz * lat);
+        }
+        if (uvScale) {
+          uvs.push(0, sv / uvScale, 1, sv / uvScale);
+        }
       }
-      if (uvScale) {
-        uvs.push(0, sv / uvScale, 1, sv / uvScale);
+      const rings = sList.length;
+      for (let i = 0; i < rings - 1; i++) {
+        const a0 = base + i * 2;
+        const a1 = a0 + 1;
+        const b0 = a0 + 2;
+        const b1 = a0 + 3;
+        indices.push(a0, a1, b0, a1, b1, b0);
       }
+      base += rings * 2;
     }
-    const rings = sList.length;
-    for (let i = 0; i < rings - 1; i++) {
-      const a0 = base + i * 2;
-      const a1 = a0 + 1;
-      const b0 = a0 + 2;
-      const b1 = a0 + 3;
-      indices.push(a0, b0, a1, a1, b0, b1);
-    }
-    base += rings * 2;
   }
   if (!indices.length) return null;
   const geometry = new THREE.BufferGeometry();

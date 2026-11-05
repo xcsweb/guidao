@@ -108,6 +108,12 @@ export function App() {
         return;
       }
 
+      if (event.key === '+' || event.key === '=' || event.key === '-') {
+        event.preventDefault();
+        api?.zoomBy(event.key === '-' ? 1.28 : 0.78);
+        return;
+      }
+
       if (event.key === 'Escape') {
         api?.exitFollow();
         store.patch({ station: null });

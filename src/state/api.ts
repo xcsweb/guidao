@@ -13,4 +13,5 @@ export interface ViewerApi {
   resetView(): void;
   setStatsVisible(value: boolean): void;
   flyToLine(id: string | null): void;
+  zoomBy(factor: number): void;
 }

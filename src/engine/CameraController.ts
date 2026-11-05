@@ -37,14 +37,24 @@ export class CameraController {
     this.terrain = terrain;
     this.controls = new OrbitControls(camera, dom);
     this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.075;
-    this.controls.rotateSpeed = 0.62;
-    this.controls.zoomSpeed = 0.9;
-    this.controls.panSpeed = 0.9;
-    this.controls.minDistance = 120;
+    this.controls.dampingFactor = 0.09;
+    this.controls.rotateSpeed = 0.55;
+    this.controls.zoomSpeed = 1.05;
+    this.controls.panSpeed = 1;
+    this.controls.minDistance = 45;
     this.controls.maxDistance = 180000;
-    this.controls.maxPolarAngle = Math.PI * 0.495;
+    this.controls.maxPolarAngle = Math.PI * 0.485;
     this.controls.screenSpacePanning = false;
+    this.controls.zoomToCursor = true;
+    this.controls.mouseButtons = {
+      LEFT: THREE.MOUSE.PAN,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.ROTATE,
+    };
+    this.controls.touches = {
+      ONE: THREE.TOUCH.PAN,
+      TWO: THREE.TOUCH.DOLLY_PAN,
+    };
 
     const height = Math.min(30000, Math.max(5000, span * 0.045));
     const distance = height * 0.85;
@@ -132,6 +142,9 @@ export class CameraController {
       target,
     };
     this.mode = 'orbit';
+    this.followPose = null;
+    this.saved = null;
+    this.restoring = null;
     this.flying = { from, to, t: 0, duration };
     this.controls.enabled = false;
   }
@@ -150,6 +163,9 @@ export class CameraController {
       ),
       target,
     };
+    this.restoring = null;
+    this.followPose = null;
+    this.saved = null;
     this.flying = {
       from: { position: this.camera.position.clone(), target: this.controls.target.clone() },
       to,
@@ -160,6 +176,9 @@ export class CameraController {
   }
 
   resetView(): void {
+    this.restoring = null;
+    this.followPose = null;
+    this.saved = null;
     this.flying = {
       from: { position: this.camera.position.clone(), target: this.controls.target.clone() },
       to: { position: this.initial.position.clone(), target: this.initial.target.clone() },
@@ -168,6 +187,22 @@ export class CameraController {
     };
     this.mode = 'orbit';
     this.controls.enabled = false;
+  }
+
+  zoomBy(factor: number): void {
+    if (this.mode === 'follow') return;
+    this.flying = null;
+    this.restoring = null;
+    this.controls.enabled = true;
+    const offset = this.camera.position.clone().sub(this.controls.target);
+    const distance = THREE.MathUtils.clamp(
+      offset.length() * factor,
+      this.controls.minDistance,
+      this.controls.maxDistance,
+    );
+    offset.setLength(distance);
+    this.camera.position.copy(this.controls.target).add(offset);
+    this.controls.update();
   }
 
   update(dt: number): void {
@@ -206,31 +241,35 @@ export class CameraController {
     if (this.mode === 'follow') {
       const pose = this.followPose;
       if (!pose) return;
-      this.followBlend = Math.min(1, this.followBlend + dt / 1.15);
-      const forward = new THREE.Vector3(pose.tx, pose.grade, pose.tz).normalize();
-      const behind = this.tunnel ? 29 : 26;
-      const camHeight = this.tunnel ? 4.15 : 6.0;
-      const lookAhead = 150;
-      const lookUp = this.tunnel ? 2.1 : 2.5;
+      this.followBlend = Math.min(1, this.followBlend + dt / 0.85);
+      const eyeHeight = this.tunnel ? 2.5 : 2.7;
       const desiredPos = new THREE.Vector3(
-        pose.x + forward.x * behind,
-        pose.y * this.exaggeration + camHeight,
-        pose.z + forward.z * behind,
+        pose.x,
+        pose.y * this.exaggeration + eyeHeight,
+        pose.z,
       );
-      if (!this.tunnel) {
-        const ground = this.terrain.heightAt(desiredPos.x, desiredPos.z) * this.exaggeration;
-        desiredPos.y = Math.max(desiredPos.y, ground + 2.5);
-      } else {
-        desiredPos.y = pose.y * this.exaggeration + camHeight;
-      }
       const desiredLook = new THREE.Vector3(
-        pose.x + forward.x * lookAhead,
-        pose.y * this.exaggeration + forward.y * lookAhead + lookUp,
-        pose.z + forward.z * lookAhead,
+        pose.lookX,
+        pose.lookY * this.exaggeration + 2.35,
+        pose.lookZ,
       );
-      const k = 1 - Math.exp(-dt * (this.followBlend < 0.6 ? 5 : 9));
-      this.camera.position.lerp(desiredPos, k);
-      this.lookAtTarget.lerp(desiredLook, k);
+      if (desiredLook.distanceToSquared(desiredPos) < 4) {
+        desiredLook.set(
+          pose.x + pose.tx * 40,
+          desiredPos.y + pose.grade * 40,
+          pose.z + pose.tz * 40,
+        );
+      }
+      if (this.followBlend < 1) {
+        const k = 1 - Math.exp(-dt * 7);
+        this.camera.position.lerp(desiredPos, k);
+        this.lookAtTarget.lerp(desiredLook, k);
+      } else {
+        // Stay exactly on the track after the transition; smoothing the position
+        // itself creates a chord through tunnel walls on tight curves.
+        this.camera.position.copy(desiredPos);
+        this.lookAtTarget.copy(desiredLook);
+      }
       this.controls.target.copy(this.lookAtTarget);
       this.camera.lookAt(this.lookAtTarget);
       return;
@@ -257,7 +296,7 @@ export class CameraController {
   }
 
   private updateFov(dt: number): void {
-    const target = this.mode === 'follow' && this.tunnel ? 66 : 55;
+    const target = this.mode === 'follow' ? (this.tunnel ? 64 : 58) : 55;
     const diff = target - this.camera.fov;
     if (Math.abs(diff) < 0.04) return;
     this.camera.fov += diff * (1 - Math.exp(-dt * 5));

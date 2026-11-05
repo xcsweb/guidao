@@ -156,6 +156,10 @@ a:focus-visible {
   cursor: grabbing;
 }
 
+.app.is-following #scene {
+  cursor: default;
+}
+
 .labels-layer {
   position: absolute;
   inset: 0;
@@ -1426,6 +1430,71 @@ button:disabled {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.map-navigation {
+  position: fixed;
+  left: 50%;
+  bottom: 82px;
+  z-index: 15;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px 5px 5px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.app.is-following .map-navigation,
+.app.is-following .panel-rail {
+  display: none;
+}
+
+.app.is-following .side-panel {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.map-zoom-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.map-zoom-buttons button {
+  width: 32px;
+  height: 30px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-family: var(--font-num);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.map-zoom-buttons button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.map-nav-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.map-gesture-hint,
+.map-touch-hint {
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.map-touch-hint {
+  display: none;
+}
+
 /* ---------------------------------------------------------------- follow HUD */
 
 .follow-vignette {
@@ -2571,6 +2640,18 @@ button:disabled {
     gap: 6px;
     max-width: calc(100vw - 16px);
     padding: 8px;
+  }
+
+  .map-navigation {
+    bottom: 78px;
+  }
+
+  .map-gesture-hint {
+    display: none;
+  }
+
+  .map-touch-hint {
+    display: inline;
   }
 
   .dock-play {
