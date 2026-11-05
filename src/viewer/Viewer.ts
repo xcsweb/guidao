@@ -10,6 +10,8 @@ import { TerrainSystem } from '@/engine/Terrain';
 import { TransitLayer } from '@/engine/TransitLayer';
 import { StationDetailLayer } from '@/engine/StationDetailLayer';
 import { TunnelLayer } from '@/engine/TunnelLayer';
+import { RailCorridor } from '@/engine/RailCorridor';
+import { TunnelPortalLayer } from '@/engine/TunnelPortalLayer';
 import { BuildingLayer } from '@/engine/BuildingLayer';
 import { WaterLayer } from '@/engine/WaterLayer';
 import { TrainLayer } from '@/engine/TrainLayer';
@@ -51,6 +53,8 @@ export class Viewer {
   private transit: TransitLayer;
   private stationDetail: StationDetailLayer;
   private tunnel: TunnelLayer;
+  private corridor: RailCorridor;
+  private portals: TunnelPortalLayer;
   private buildings: BuildingLayer;
   private vegetation: VegetationLayer;
   private water: WaterLayer;
@@ -82,7 +86,7 @@ export class Viewer {
   private fastTimer = 0;
   private frameIndex = 0;
   private toastTimer = 0;
-  private pointerStart: { x: number; y: number } | null = null;
+  private pointerStart: { x: number; y: number; pointerId: number } | null = null;
   private firstFrame = false;
   private disposed = false;
 
@@ -134,6 +138,8 @@ export class Viewer {
     this.water = new WaterLayer(loaded.features.rivers, this.terrain);
     this.root.add(this.water.group);
     this.transit = new TransitLayer(loaded.network, this.terrain);
+    this.corridor = new RailCorridor(this.transit.geometries);
+    this.terrain.setCorridor(this.corridor);
     this.root.add(this.transit.group);
     this.root.add(this.transit.labelGroup);
     this.stationDetail = new StationDetailLayer(
@@ -146,6 +152,8 @@ export class Viewer {
     this.root.add(this.stationDetail.group);
     this.tunnel = new TunnelLayer();
     this.root.add(this.tunnel.group);
+    this.portals = new TunnelPortalLayer(this.corridor, this.transit.geometries);
+    this.root.add(this.portals.group);
     this.buildings = new BuildingLayer(
       loaded.buildings,
       loaded.features.buildings.stride,
@@ -217,6 +225,7 @@ export class Viewer {
     document.addEventListener('visibilitychange', this.onVisibility);
     this.canvas.addEventListener('pointerdown', this.onPointerDown);
     this.canvas.addEventListener('pointerup', this.onPointerUp);
+    this.canvas.addEventListener('pointercancel', this.onPointerCancel);
   }
 
   private resize = (): void => {
@@ -244,14 +253,18 @@ export class Viewer {
   };
 
   private onPointerDown = (event: PointerEvent): void => {
-    this.pointerStart = { x: event.clientX, y: event.clientY };
+    if (!event.isPrimary || event.button !== 0) {
+      this.pointerStart = null;
+      return;
+    }
+    this.pointerStart = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
   };
 
   private onPointerUp = (event: PointerEvent): void => {
-    if (!this.pointerStart) return;
+    if (!this.pointerStart || event.pointerId !== this.pointerStart.pointerId) return;
     const moved = Math.hypot(event.clientX - this.pointerStart.x, event.clientY - this.pointerStart.y);
     this.pointerStart = null;
-    if (moved > 6) return;
+    if (event.button !== 0 || moved > 6) return;
     const rect = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -270,6 +283,10 @@ export class Viewer {
     } else {
       store.patch({ station: null });
     }
+  };
+
+  private onPointerCancel = (event: PointerEvent): void => {
+    if (event.pointerId === this.pointerStart?.pointerId) this.pointerStart = null;
   };
 
   start(): void {
@@ -360,10 +377,12 @@ export class Viewer {
     this.vegetation.setVisible(!cameraTunnel && this.quality !== 'low');
 
     this.cameraController.update(dt);
+    this.portals.update(this.camera);
 
     const overview = this.camera.position.y / Math.max(0.5, this.exaggeration) > 5200;
     const deepTunnel = cameraTunnel && tunnelDepth > 120;
     this.terrain.group.visible = !deepTunnel;
+    this.portals.group.visible = !deepTunnel;
     if (!deepTunnel) this.terrain.update(this.camera, now);
     if (!cameraTunnel) {
       if (this.frameIndex % 6 === 0) this.buildings.update(this.camera);
@@ -513,6 +532,7 @@ export class Viewer {
     this.trains.setQuality(quality);
     this.stationDetail.setQuality(quality);
     this.tunnel.setQuality(quality);
+    this.portals.setQuality(quality);
     this.transit.setLabelDistance(quality === 'low' ? 6000 : quality === 'medium' ? 12000 : 20000);
     this.resize();
     store.patch({ quality });
@@ -595,7 +615,8 @@ export class Viewer {
         const pos = this.transit.stationPositions.get(id);
         if (!pos) return;
         if (this.followId) this.exitFollow();
-        this.cameraController.flyToStation(pos.x, pos.z, pos.y);
+        const focusY = station.stationType === 'underground' ? pos.groundY : pos.trackY;
+        this.cameraController.flyToStation(pos.x, pos.z, focusY);
         store.patch({ station });
       },
       resetView: () => {
@@ -628,12 +649,14 @@ export class Viewer {
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     this.canvas.removeEventListener('pointerup', this.onPointerUp);
+    this.canvas.removeEventListener('pointercancel', this.onPointerCancel);
     this.http?.stop();
     this.cameraController.dispose();
     this.terrain.dispose();
     this.transit.dispose();
     this.stationDetail.dispose();
     this.tunnel.dispose();
+    this.portals.dispose();
     this.buildings.dispose();
     this.vegetation.dispose();
     this.water.dispose();

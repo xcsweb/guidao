@@ -136,7 +136,11 @@ export function ControlDock({ api }: ControlDockProps) {
       </button>
       </div>
 
-      <div className="map-navigation glass-panel" aria-label="地图导航">
+      <div
+        className="map-navigation glass-panel"
+        aria-label="地图导航"
+        title="左键单击选择站点；中键或左键拖动旋转；Shift+中键或右键拖动平移；Alt+左键旋转；滚轮向光标缩放"
+      >
         <div className="map-zoom-buttons">
           <button
             type="button"
@@ -158,8 +162,8 @@ export function ControlDock({ api }: ControlDockProps) {
           </button>
         </div>
         <span className="map-nav-divider" aria-hidden="true" />
-        <span className="map-gesture-hint">左键拖动平移 · 滚轮缩放 · 右键旋转</span>
-        <span className="map-touch-hint">单指平移 · 双指缩放与平移</span>
+        <span className="map-gesture-hint">中键旋转 · Shift+中键 / 右键平移 · Alt+左键旋转 · 滚轮缩放</span>
+        <span className="map-touch-hint">单指旋转 · 双指缩放与平移</span>
       </div>
     </>
   );

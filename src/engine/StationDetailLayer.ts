@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { NetworkFile, StationData } from '@/data/types';
 import type { LineGeometry, PathSample } from './LineGeometry';
+import type { StationPosition } from './TransitLayer';
 import type { Quality } from '@/state/store';
 
 interface StationModel {
@@ -47,10 +48,19 @@ export class StationDetailLayer {
   private metroHall: THREE.InstancedMesh;
   private metroOpening: THREE.InstancedMesh;
   private metroCap: THREE.InstancedMesh;
+  private metroRoof: THREE.InstancedMesh;
+  private metroFrame: THREE.InstancedMesh;
+  private metroLintel: THREE.InstancedMesh;
+  private metroPit: THREE.InstancedMesh;
   private metroSteps: THREE.InstancedMesh;
+  private metroHandrail: THREE.InstancedMesh;
   private metroVent: THREE.InstancedMesh;
+  private metroVentGrille: THREE.InstancedMesh;
+  private metroMarkerFace: THREE.InstancedMesh;
   private totemPole: THREE.InstancedMesh;
   private totemSign: THREE.InstancedMesh;
+  private metroConcreteTexture: THREE.CanvasTexture;
+  private metroMarkerTexture: THREE.CanvasTexture;
 
   private capacity: number;
   private detailed = new Set<string>();
@@ -72,7 +82,7 @@ export class StationDetailLayer {
   constructor(
     network: NetworkFile,
     geometries: Map<string, LineGeometry>,
-    stationPositions: Map<string, { x: number; y: number; z: number; color: string }>,
+    stationPositions: Map<string, StationPosition>,
     viewportHeight: number,
     fovDeg: number,
   ) {
@@ -94,11 +104,26 @@ export class StationDetailLayer {
       toneMapped: false,
     });
     const hallMat = new THREE.MeshLambertMaterial({ color: 0x969ea3 });
-    const metroGlassMat = new THREE.MeshLambertMaterial({
-      color: 0xa7c3cc,
-      emissive: 0x1a2c33,
+    this.metroConcreteTexture = makeMetroConcreteTexture();
+    this.metroMarkerTexture = makeMetroMarkerTexture();
+    const metroConcreteMat = new THREE.MeshLambertMaterial({
+      color: 0xc3c9ca,
+      map: this.metroConcreteTexture,
     });
-    const openingMat = new THREE.MeshBasicMaterial({ color: 0x10181d });
+    const metroGlassMat = new THREE.MeshLambertMaterial({
+      color: 0x9fc9d5,
+      emissive: 0x162d36,
+      transparent: true,
+      opacity: 0.46,
+      depthWrite: false,
+    });
+    const metroMetalMat = new THREE.MeshLambertMaterial({ color: 0x596970 });
+    const metroRoofMat = new THREE.MeshLambertMaterial({ color: 0x43545d });
+    const openingMat = new THREE.MeshBasicMaterial({ color: 0x0b1419 });
+    const metroMarkerMat = new THREE.MeshBasicMaterial({
+      map: this.metroMarkerTexture,
+      toneMapped: false,
+    });
     const poleMat = new THREE.MeshLambertMaterial({ color: 0x6b7479 });
 
     const platformGeo = new THREE.BoxGeometry(3.5, 0.55, 92);
@@ -140,7 +165,7 @@ export class StationDetailLayer {
 
     const metroBaseGeo = new THREE.BoxGeometry(8.4, 0.24, 7);
     metroBaseGeo.translate(9.6, 0.12, 0);
-    this.metroBase = this.instanced(metroBaseGeo, concreteDark, this.capacity * 2);
+    this.metroBase = this.instanced(metroBaseGeo, metroConcreteMat, this.capacity * 2);
 
     const metroHallGeo = new THREE.BoxGeometry(4.6, 3, 5.8);
     metroHallGeo.translate(11.1, 1.72, 0);
@@ -150,19 +175,50 @@ export class StationDetailLayer {
     metroOpeningGeo.translate(8.74, 1.35, 0);
     this.metroOpening = this.instanced(metroOpeningGeo, openingMat, this.capacity * 2);
 
-    const metroCapGeo = new THREE.BoxGeometry(5.8, 0.26, 6.6);
-    metroCapGeo.translate(10.9, 3.34, 0);
+    const metroCapGeo = new THREE.BoxGeometry(0.18, 0.34, 6.6);
+    metroCapGeo.translate(8.02, 3.34, 0);
     this.metroCap = this.instanced(metroCapGeo, accentMat, this.capacity * 2, true);
 
-    this.metroSteps = this.instanced(
-      new THREE.BoxGeometry(0.68, 0.14, 3.4),
-      concreteDark,
+    const metroRoofGeo = new THREE.BoxGeometry(6.2, 0.22, 7);
+    metroRoofGeo.translate(10.85, 3.5, 0);
+    this.metroRoof = this.instanced(metroRoofGeo, metroRoofMat, this.capacity * 2);
+
+    this.metroFrame = this.instanced(
+      new THREE.BoxGeometry(0.2, 3.15, 0.2),
+      metroMetalMat,
       this.capacity * 10,
     );
+    this.metroLintel = this.instanced(
+      new THREE.BoxGeometry(0.24, 0.24, 5.55),
+      metroMetalMat,
+      this.capacity * 4,
+    );
+
+    const metroPitGeo = new THREE.BoxGeometry(4.6, 0.035, 3.9);
+    metroPitGeo.translate(6.85, 0.265, 0);
+    this.metroPit = this.instanced(metroPitGeo, openingMat, this.capacity * 2);
+
+    this.metroSteps = this.instanced(
+      new THREE.BoxGeometry(0.62, 0.12, 3.4),
+      metroConcreteMat,
+      this.capacity * 12,
+    );
+    const metroHandrailGeo = new THREE.BoxGeometry(4, 0.075, 0.075);
+    metroHandrailGeo.rotateZ(-0.12);
+    this.metroHandrail = this.instanced(metroHandrailGeo, metroMetalMat, this.capacity * 4);
 
     const metroVentGeo = new THREE.BoxGeometry(1.6, 1.4, 2.5);
     metroVentGeo.translate(-8.5, 0.7, 0);
-    this.metroVent = this.instanced(metroVentGeo, concreteDark, this.capacity * 2);
+    this.metroVent = this.instanced(metroVentGeo, metroMetalMat, this.capacity * 2);
+    this.metroVentGrille = this.instanced(
+      new THREE.BoxGeometry(0.07, 0.065, 2.12),
+      openingMat,
+      this.capacity * 12,
+    );
+
+    const metroMarkerGeo = new THREE.PlaneGeometry(2.8, 1.15);
+    metroMarkerGeo.translate(23.2, 5.4, 9.601);
+    this.metroMarkerFace = this.instanced(metroMarkerGeo, metroMarkerMat, this.capacity);
 
     const poleGeo = new THREE.BoxGeometry(0.24, 5.1, 0.24);
     poleGeo.translate(23.2, 2.55, 9.5);
@@ -188,8 +244,15 @@ export class StationDetailLayer {
       this.metroHall,
       this.metroOpening,
       this.metroCap,
+      this.metroRoof,
+      this.metroFrame,
+      this.metroLintel,
+      this.metroPit,
       this.metroSteps,
+      this.metroHandrail,
       this.metroVent,
+      this.metroVentGrille,
+      this.metroMarkerFace,
       this.totemPole,
       this.totemSign,
     );
@@ -220,7 +283,7 @@ export class StationDetailLayer {
   private collectModels(
     network: NetworkFile,
     geometries: Map<string, LineGeometry>,
-    stationPositions: Map<string, { x: number; y: number; z: number; color: string }>,
+    stationPositions: Map<string, StationPosition>,
   ): StationModel[] {
     const lineColors = new Map(network.lines.map((line) => [line.id, line.color]));
     const sample: PathSample = { x: 0, z: 0, y: 0, tx: 0, tz: 0 };
@@ -228,30 +291,21 @@ export class StationDetailLayer {
     for (const station of network.stations) {
       const anchor = stationPositions.get(station.id);
       if (!anchor) continue;
-      let geo: LineGeometry | null = null;
-      let stationS = 0;
-      for (const lineId of station.lines) {
-        const candidate = geometries.get(lineId);
-        if (!candidate) continue;
-        const found = candidate.stations.find((s) => s.id === station.id);
-        if (found) {
-          geo = candidate;
-          stationS = found.s;
-          break;
-        }
-      }
-      if (!geo) continue;
-      geo.sampleAt(stationS, sample);
+      const geo = geometries.get(anchor.lineId);
+      const point = geo?.stations.find((s) => s.id === station.id);
+      if (!geo || !point) continue;
+      geo.sampleAt(point.s, sample);
+      const underground = station.stationType === 'underground';
       models.push({
         id: station.id,
         name: station.name,
         x: anchor.x,
-        y: anchor.y,
+        y: underground ? anchor.groundY : anchor.trackY,
         z: anchor.z,
         yaw: Math.atan2(sample.tx, sample.tz),
-        color: lineColors.get(station.lines[0]) || anchor.color,
+        color: lineColors.get(anchor.lineId) || anchor.color,
         station,
-        underground: station.stationType === 'underground',
+        underground,
       });
     }
     return models;
@@ -334,8 +388,15 @@ export class StationDetailLayer {
     this.metroHall.count = 0;
     this.metroOpening.count = 0;
     this.metroCap.count = 0;
+    this.metroRoof.count = 0;
+    this.metroFrame.count = 0;
+    this.metroLintel.count = 0;
+    this.metroPit.count = 0;
     this.metroSteps.count = 0;
+    this.metroHandrail.count = 0;
     this.metroVent.count = 0;
+    this.metroVentGrille.count = 0;
+    this.metroMarkerFace.count = 0;
     this.totemPole.count = 0;
     this.totemSign.count = 0;
 
@@ -365,8 +426,15 @@ export class StationDetailLayer {
       this.metroHall,
       this.metroOpening,
       this.metroCap,
+      this.metroRoof,
+      this.metroFrame,
+      this.metroLintel,
+      this.metroPit,
       this.metroSteps,
+      this.metroHandrail,
       this.metroVent,
+      this.metroVentGrille,
+      this.metroMarkerFace,
       this.totemPole,
       this.totemSign,
     ]) {
@@ -385,6 +453,14 @@ export class StationDetailLayer {
         this.write(this.metroHall, model, 0, 0, z);
         this.write(this.metroOpening, model, 0, 0, z);
         this.write(this.metroCap, model, 0, 0, z, true);
+        this.write(this.metroRoof, model, 0, 0, z);
+        this.write(this.metroPit, model, 0, 0, z);
+        for (const x of [8.6, 13.45]) {
+          for (const dz of [-2.65, 2.65]) {
+            this.write(this.metroFrame, model, x, 1.66, z + dz);
+          }
+          this.write(this.metroLintel, model, x, 3.18, z);
+        }
       }
       return;
     }
@@ -400,14 +476,25 @@ export class StationDetailLayer {
   private addFull(model: StationModel): void {
     if (model.underground) {
       for (const z of [-16, 16]) {
-        for (let i = 0; i < 5; i++) {
-          this.write(this.metroSteps, model, 6.4 + i * 0.68, 0.55 - i * 0.08, z);
+        this.write(this.metroFrame, model, 8.6, 1.66, z);
+        for (let i = 0; i < 6; i++) {
+          this.write(this.metroSteps, model, 5.25 + i * 0.62, 0.58 - i * 0.075, z);
+        }
+        for (const dz of [-1.96, 1.96]) {
+          this.write(this.metroHandrail, model, 6.85, 1.02, z + dz);
         }
       }
-      this.write(this.metroVent, model, 0, 0, -19);
-      this.write(this.metroVent, model, 0, 0, 19);
+      const grilleCount = this.quality === 'high' ? 6 : this.quality === 'medium' ? 4 : 3;
+      for (const z of [-19, 19]) {
+        this.write(this.metroVent, model, 0, 0, z);
+        for (let i = 0; i < grilleCount; i++) {
+          const y = 0.72 + (i - (grilleCount - 1) * 0.5) * 0.15;
+          this.write(this.metroVentGrille, model, -7.66, y, z);
+        }
+      }
       this.write(this.totemPole, model, -32, 0, 0);
       this.write(this.totemSign, model, -32, 0, 0, true);
+      this.write(this.metroMarkerFace, model, -32, 0, 0);
       return;
     }
     this.write(this.tactileL, model, 0, 0, 0);
@@ -454,6 +541,7 @@ export class StationDetailLayer {
   }
 
   dispose(): void {
+    const materials = new Set<THREE.Material>();
     for (const mesh of [
       this.platformL,
       this.platformR,
@@ -470,18 +558,83 @@ export class StationDetailLayer {
       this.metroHall,
       this.metroOpening,
       this.metroCap,
+      this.metroRoof,
+      this.metroFrame,
+      this.metroLintel,
+      this.metroPit,
       this.metroSteps,
+      this.metroHandrail,
       this.metroVent,
+      this.metroVentGrille,
+      this.metroMarkerFace,
       this.totemPole,
       this.totemSign,
     ]) {
       mesh.geometry.dispose();
       const material = mesh.material;
-      if (Array.isArray(material)) material.forEach((m) => m.dispose());
-      else material.dispose();
+      if (Array.isArray(material)) material.forEach((m) => materials.add(m));
+      else materials.add(material);
       mesh.dispose();
     }
+    for (const material of materials) material.dispose();
+    this.metroConcreteTexture.dispose();
+    this.metroMarkerTexture.dispose();
   }
+}
+
+function makeMetroConcreteTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 96;
+  canvas.height = 96;
+  const ctx = canvas.getContext?.('2d');
+  if (ctx) {
+    ctx.fillStyle = '#b8c0c2';
+    ctx.fillRect(0, 0, 96, 96);
+    ctx.strokeStyle = 'rgba(75,88,92,0.28)';
+    ctx.lineWidth = 1;
+    for (const p of [0, 32, 64, 96]) {
+      ctx.beginPath();
+      ctx.moveTo(p, 0);
+      ctx.lineTo(p, 96);
+      ctx.moveTo(0, p);
+      ctx.lineTo(96, p);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(55,65,68,0.12)';
+    for (let i = 0; i < 48; i++) ctx.fillRect((i * 37) % 96, (i * 61) % 96, 1, 1);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function makeMetroMarkerTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext?.('2d');
+  if (ctx) {
+    ctx.fillStyle = '#f2f6f6';
+    ctx.fillRect(0, 0, 512, 256);
+    ctx.fillStyle = '#17333f';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '800 142px Arial, sans-serif';
+    ctx.fillText('M', 100, 122);
+    ctx.textAlign = 'left';
+    ctx.font = '700 74px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.fillText('地铁', 202, 99);
+    ctx.fillStyle = '#58717b';
+    ctx.font = '600 34px Arial, sans-serif';
+    ctx.fillText('METRO', 205, 175);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
 }
 
 function buildArchRoofGeometry(

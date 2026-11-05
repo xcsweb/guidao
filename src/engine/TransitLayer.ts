@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { LineData, NetworkFile, StationData } from '@/data/types';
-import { LineGeometry } from './LineGeometry';
+import { LineGeometry, type StationPoint } from './LineGeometry';
 import { TerrainSystem } from './Terrain';
 
 interface LineVisual {
@@ -23,11 +23,24 @@ interface LineVisual {
   center: [number, number];
 }
 
+export interface StationPosition {
+  x: number;
+  /** Natural street anchor for underground stations; track anchor otherwise. */
+  y: number;
+  z: number;
+  color: string;
+  /** Natural DEM elevation, independent of the rail profile. */
+  groundY: number;
+  /** Rail/platform elevation on the selected, surface-prioritized line. */
+  trackY: number;
+  lineId: string;
+}
+
 export class TransitLayer {
   readonly group = new THREE.Group();
   readonly labelGroup = new THREE.Group();
   readonly geometries = new Map<string, LineGeometry>();
-  readonly stationPositions = new Map<string, { x: number; y: number; z: number; color: string }>();
+  readonly stationPositions = new Map<string, StationPosition>();
 
   private visuals = new Map<string, LineVisual>();
   private stationMesh: THREE.InstancedMesh;
@@ -43,8 +56,6 @@ export class TransitLayer {
   private hiddenStations: Set<string> = new Set();
 
   constructor(network: NetworkFile, terrain: TerrainSystem) {
-    const stationInfo = new Map<string, { x: number; y: number; z: number; color: string }>();
-
     for (const line of network.lines) {
       const geo = new LineGeometry(line, terrain);
       this.geometries.set(line.id, geo);
@@ -54,32 +65,51 @@ export class TransitLayer {
       }
       const visual = this.buildLineVisual(line, geo);
       this.visuals.set(line.id, visual);
-      for (const st of geo.stations) {
-        if (!stationInfo.has(st.id)) {
-          stationInfo.set(st.id, { x: st.x, y: st.y, z: st.z, color: line.color });
-        }
-      }
     }
 
-    for (const st of network.stations) {
-      const pos = stationInfo.get(st.id);
-      if (pos) this.stationPositions.set(st.id, pos);
-    }
-
-    this.stationOrder = network.stations.filter((s) => this.stationPositions.has(s.id));
-    for (const station of this.stationOrder) {
+    for (const station of network.stations) {
       const ranges = new Set<boolean>();
+      let selected: {
+        lineId: string;
+        color: string;
+        point: StationPoint;
+        underground: boolean;
+      } | null = null;
       for (const lineId of station.lines) {
         const geo = this.geometries.get(lineId);
         const point = geo?.stations.find((item) => item.id === station.id);
-        if (geo && point) ranges.add(geo.isInsideTunnel(point.s));
+        if (!geo || !point) continue;
+        const underground = geo.isInsideTunnel(point.s);
+        ranges.add(underground);
+        if (!selected || (selected.underground && !underground)) {
+          selected = {
+            lineId,
+            color: geo.line.color,
+            point,
+            underground,
+          };
+        }
       }
       station.stationType = ranges.size > 1
         ? 'mixed'
         : ranges.has(true)
           ? 'underground'
           : 'surface';
+      if (selected) {
+        const { point } = selected;
+        this.stationPositions.set(station.id, {
+          x: point.x,
+          y: station.stationType === 'underground' ? point.groundY : point.y,
+          z: point.z,
+          color: selected.color,
+          groundY: point.groundY,
+          trackY: point.y,
+          lineId: selected.lineId,
+        });
+      }
     }
+
+    this.stationOrder = network.stations.filter((s) => this.stationPositions.has(s.id));
     this.stationMesh = this.buildStationMarkers();
     this.ringMesh = this.buildStationRings();
     this.buildLabels(network.stations);

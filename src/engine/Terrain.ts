@@ -2,6 +2,12 @@ import * as THREE from 'three';
 import type { CityManifest, TerrainMeta } from '@/data/types';
 import type { Quality } from '@/state/store';
 import { Projection } from './Projection';
+import {
+  PORTAL_HOLE_AHEAD,
+  PORTAL_HOLE_BACK,
+  PORTAL_HOLE_HALF_WIDTH,
+  type RailCorridor,
+} from './RailCorridor';
 
 interface TierRuntime {
   meta: TerrainMeta['tiers'][number];
@@ -22,11 +28,20 @@ interface ChunkNode {
   lastUsed: number;
 }
 
-const QUALITY_SETTINGS: Record<Quality, { segments: number; maxChunks: number; maxLevel: number; threshold: number }> = {
-  low: { segments: 8, maxChunks: 110, maxLevel: 8, threshold: 360 },
-  medium: { segments: 14, maxChunks: 220, maxLevel: 11, threshold: 230 },
-  high: { segments: 20, maxChunks: 320, maxLevel: 12, threshold: 200 },
+const QUALITY_SETTINGS: Record<Quality, {
+  segments: number;
+  maxChunks: number;
+  maxLevel: number;
+  threshold: number;
+  corridorCell: number;
+  corridorDistance: number;
+}> = {
+  low: { segments: 8, maxChunks: 110, maxLevel: 8, threshold: 360, corridorCell: 18, corridorDistance: 1500 },
+  medium: { segments: 14, maxChunks: 220, maxLevel: 11, threshold: 230, corridorCell: 12, corridorDistance: 2300 },
+  high: { segments: 20, maxChunks: 320, maxLevel: 12, threshold: 200, corridorCell: 8, corridorDistance: 3200 },
 };
+
+const MAX_PORTAL_OPENINGS = 12;
 
 const ELEVATION_STOPS: Array<[number, string]> = [
   [140, '#2f4a3e'],
@@ -73,6 +88,13 @@ export class TerrainSystem {
   private frustum = new THREE.Frustum();
   private projScreen = new THREE.Matrix4();
   private sphere = new THREE.Sphere();
+  private corridor: RailCorridor | null = null;
+  private portalCountUniform = { value: 0 };
+  private portalUniforms = {
+    value: Array.from({ length: MAX_PORTAL_OPENINGS }, () => new THREE.Vector4()),
+  };
+  private portalAnchorX = Number.NaN;
+  private portalAnchorZ = Number.NaN;
 
   constructor(manifest: CityManifest, meta: TerrainMeta, buffers: Int16Array[]) {
     this.projection = new Projection(manifest);
@@ -80,6 +102,35 @@ export class TerrainSystem {
       vertexColors: true,
       side: THREE.FrontSide,
     });
+    this.material.onBeforeCompile = (shader) => {
+      shader.uniforms.uPortalCount = this.portalCountUniform;
+      shader.uniforms.uPortals = this.portalUniforms;
+      shader.vertexShader = `varying vec3 vTerrainWorld;\n${shader.vertexShader}`;
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvTerrainWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;',
+      );
+      shader.fragmentShader = `
+        varying vec3 vTerrainWorld;
+        uniform int uPortalCount;
+        uniform vec4 uPortals[${MAX_PORTAL_OPENINGS}];
+        ${shader.fragmentShader}
+      `;
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+        for (int i = 0; i < ${MAX_PORTAL_OPENINGS}; i++) {
+          if (i >= uPortalCount) continue;
+          vec2 delta = vTerrainWorld.xz - uPortals[i].xy;
+          vec2 forward = uPortals[i].zw;
+          float along = dot(delta, forward);
+          float lateral = dot(delta, vec2(-forward.y, forward.x));
+          if (along > -${PORTAL_HOLE_BACK.toFixed(1)} && along < ${PORTAL_HOLE_AHEAD.toFixed(1)}
+            && abs(lateral) < ${PORTAL_HOLE_HALF_WIDTH.toFixed(2)}) discard;
+        }`,
+      );
+    };
+    this.material.customProgramCacheKey = () => 'terrain-rail-corridor-v1';
 
     meta.tiers.forEach((tier, i) => {
       const [lonMin, latMin, lonMax, latMax] = tier.bbox;
@@ -130,6 +181,20 @@ export class TerrainSystem {
     this.heightScale = scale;
   }
 
+  setCorridor(corridor: RailCorridor | null): void {
+    if (this.corridor === corridor) return;
+    this.corridor = corridor;
+    this.portalAnchorX = Number.NaN;
+    this.portalAnchorZ = Number.NaN;
+    this.clearCache();
+  }
+
+  /** Height used only by render meshes; heightAt remains the natural DEM API. */
+  renderHeightAt(x: number, z: number): number {
+    const natural = this.heightAt(x, z);
+    return this.corridor?.modifiedHeightAt(x, z, natural) ?? natural;
+  }
+
   private applyQuality(quality: Quality): void {
     this.quality = quality;
     const q = QUALITY_SETTINGS[quality];
@@ -137,6 +202,8 @@ export class TerrainSystem {
     this.maxChunks = q.maxChunks;
     this.maxLevel = q.maxLevel;
     this.threshold = q.threshold;
+    this.portalAnchorX = Number.NaN;
+    this.portalAnchorZ = Number.NaN;
     this.clearCache();
   }
 
@@ -164,6 +231,7 @@ export class TerrainSystem {
 
   update(camera: THREE.PerspectiveCamera, now: number): void {
     camera.updateMatrixWorld();
+    this.updatePortalUniforms(camera);
     this.projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projScreen);
     const leaves: Array<{ node: ChunkNode; distance: number }> = [];
@@ -185,6 +253,34 @@ export class TerrainSystem {
     this.evict(now);
   }
 
+  private updatePortalUniforms(camera: THREE.PerspectiveCamera): void {
+    if (!this.corridor) {
+      this.portalCountUniform.value = 0;
+      return;
+    }
+    if (
+      Number.isFinite(this.portalAnchorX)
+      && Math.hypot(camera.position.x - this.portalAnchorX, camera.position.z - this.portalAnchorZ) < 48
+    ) return;
+    this.portalAnchorX = camera.position.x;
+    this.portalAnchorZ = camera.position.z;
+    const nearby = this.corridor.portalsNear(
+      camera.position.x,
+      camera.position.z,
+      QUALITY_SETTINGS[this.quality].corridorDistance,
+    ).slice(0, MAX_PORTAL_OPENINGS);
+    for (let i = 0; i < nearby.length; i++) {
+      const portal = nearby[i];
+      this.portalUniforms.value[i].set(
+        portal.x,
+        portal.z,
+        portal.tx * portal.inward,
+        portal.tz * portal.inward,
+      );
+    }
+    this.portalCountUniform.value = nearby.length;
+  }
+
   private collect(
     camera: THREE.PerspectiveCamera,
     node: ChunkNode,
@@ -204,10 +300,17 @@ export class TerrainSystem {
     const resolution = this.tierResolutionAt(cx, cz);
     const cellSize = size / this.segments;
 
-    const canSplit =
+    const corridorSplit = !!this.corridor
+      && distance < QUALITY_SETTINGS[this.quality].corridorDistance
+      && node.level < this.maxLevel + 4
+      && cellSize > QUALITY_SETTINGS[this.quality].corridorCell
+      && pixels > 24
+      && this.corridor.mayAffect(node.x0, node.z0, node.x1, node.z1);
+    const canSplit = corridorSplit || (
       node.level < this.maxLevel &&
       cellSize > resolution * 1.05 &&
-      pixels > this.threshold;
+      pixels > this.threshold
+    );
     if (!canSplit) {
       out.push({ node, distance });
       return;
@@ -240,20 +343,30 @@ export class TerrainSystem {
     const positions: number[] = [];
     const normals: number[] = [];
     const colors: number[] = [];
+    const corridor = this.corridor?.mayAffect(node.x0, node.z0, node.x1, node.z1)
+      ? this.corridor
+      : null;
+    const surfaceAt = (x: number, z: number): number => {
+      const natural = this.heightAt(x, z);
+      return corridor?.modifiedHeightAt(x, z, natural) ?? natural;
+    };
 
     for (let row = 0; row <= seg; row++) {
       const z = node.z0 + row * stepZ;
       for (let col = 0; col <= seg; col++) {
         const x = node.x0 + col * stepX;
-        const h = this.heightAt(x, z);
+        const natural = this.heightAt(x, z);
+        const h = corridor?.modifiedHeightAt(x, z, natural) ?? natural;
         positions.push(x, h, z);
 
-        const hx = this.heightAt(x + stepX * 0.5, z) - this.heightAt(x - stepX * 0.5, z);
-        const hz = this.heightAt(x, z + stepZ * 0.5) - this.heightAt(x, z - stepZ * 0.5);
+        const hx = surfaceAt(x + stepX * 0.5, z) - surfaceAt(x - stepX * 0.5, z);
+        const hz = surfaceAt(x, z + stepZ * 0.5) - surfaceAt(x, z - stepZ * 0.5);
         const n = new THREE.Vector3(-hx, stepX, -hz).normalize();
         normals.push(n.x, n.y, n.z);
 
         const c = colorForHeight(h);
+        const cutDepth = natural - h;
+        if (cutDepth > 0.15) c.lerp(ROCK_COLOR, Math.min(0.72, 0.28 + cutDepth * 0.055));
         const steep = Math.max(0, 1 - n.y);
         if (steep > 0.12) c.lerp(ROCK_COLOR, Math.min(0.58, steep * 0.85));
         const noise = 0.93 + hash2(x, z) * 0.12;
@@ -284,13 +397,13 @@ export class TerrainSystem {
     for (let i = 1; i < seg; i++) edgePoints.push([node.x0, node.z1 - i * stepZ, 3]);
     const edgeStart = skirtStart;
     for (const [x, z] of edgePoints) {
-      const h = this.heightAt(x, z);
+      const h = surfaceAt(x, z);
       positions.push(x, h, z);
       normals.push(0, 1, 0);
       colors.push(0.08, 0.12, 0.1);
     }
     for (const [x, z] of edgePoints) {
-      const h = this.heightAt(x, z) - skirt;
+      const h = surfaceAt(x, z) - skirt;
       positions.push(x, h, z);
       normals.push(0, 1, 0);
       colors.push(0.05, 0.08, 0.07);

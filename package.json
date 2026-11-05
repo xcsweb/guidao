@@ -9,7 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "build:data": "node scripts/build-data.mjs",
-    "build:terrain": "node scripts/bake-terrain.mjs"
+    "build:terrain": "node scripts/bake-terrain.mjs",
+    "test:profile": "node scripts/assert-profiles.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",

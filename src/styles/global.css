@@ -152,8 +152,13 @@ a:focus-visible {
   cursor: grab;
 }
 
-#scene:active {
+#scene:active,
+#scene[data-navigation='rotate'] {
   cursor: grabbing;
+}
+
+#scene[data-navigation='pan'] {
+  cursor: move;
 }
 
 .app.is-following #scene {

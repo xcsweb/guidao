@@ -2,13 +2,29 @@ import * as THREE from 'three';
 import type { LineData } from '@/data/types';
 import { TerrainSystem } from './Terrain';
 
+export const GROUND_TRACK_OFFSET = 2.5;
+const BRIDGE_DECK_LIFT = 7;
+const BRIDGE_MIN_RAMP = 40;
+const BRIDGE_MAX_GRADE = 0.08;
+const TUNNEL_MAX_DEPTH = 18;
+const TUNNEL_MAX_RAMP = 320;
+const TUNNEL_SHORT_DEPTH_SCALE = 0.04;
+
+function smoothstep01(value: number): number {
+  const t = Math.max(0, Math.min(1, value));
+  return t * t * (3 - 2 * t);
+}
+
 export interface StationPoint {
   id: string;
   name: string;
   s: number;
   x: number;
   z: number;
+  /** Rail/platform elevation. */
   y: number;
+  /** Natural, unmodified DEM elevation at the same horizontal sample. */
+  groundY: number;
 }
 
 export interface PathSample {
@@ -26,6 +42,8 @@ export class LineGeometry {
   readonly xs: Float32Array;
   readonly zs: Float32Array;
   readonly ys: Float32Array;
+  /** Natural DEM samples aligned with xs/zs/ys/cum, before any track offsets. */
+  readonly groundYs: Float32Array;
   readonly cum: Float32Array;
   readonly bridges: Array<[number, number]>;
   readonly tunnels: Array<[number, number]>;
@@ -55,6 +73,7 @@ export class LineGeometry {
     this.xs = new Float32Array(n);
     this.zs = new Float32Array(n);
     this.ys = new Float32Array(n);
+    this.groundYs = new Float32Array(n);
     this.cum = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       this.xs[i] = pts[i].x;
@@ -64,19 +83,12 @@ export class LineGeometry {
     this.length = this.cum[n - 1] || 1;
     const scale = this.length / (line.length || this.length);
 
-    const baseY = new Float32Array(n);
+    const groundTrackY = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      const x = this.xs[i];
-      const z = this.zs[i];
-      const localMax = Math.max(
-        terrain.heightAt(x, z),
-        terrain.heightAt(x + 25, z),
-        terrain.heightAt(x - 25, z),
-        terrain.heightAt(x, z + 25),
-        terrain.heightAt(x, z - 25),
-      );
-      baseY[i] = localMax + 2.5;
+      this.groundYs[i] = terrain.heightAt(this.xs[i], this.zs[i]);
+      groundTrackY[i] = this.groundYs[i] + GROUND_TRACK_OFFSET;
     }
+    this.ys.set(groundTrackY);
 
     this.bridges = line.surface.bridge.map(([a, b]) => [a * scale, b * scale] as [number, number]);
     this.tunnels = line.surface.tunnel.map(([a, b]) => [a * scale, b * scale] as [number, number]);
@@ -84,32 +96,42 @@ export class LineGeometry {
     for (const [a, b] of this.bridges) {
       const startIdx = this.indexAt(a);
       const endIdx = this.indexAt(b);
-      const deck = Math.max(baseY[startIdx], baseY[endIdx]) + 7;
-      const ramp = 40;
+      const startGround = this.valueAt(groundTrackY, a);
+      const endGround = this.valueAt(groundTrackY, b);
+      const deck = Math.max(startGround, endGround) + BRIDGE_DECK_LIFT;
+      const span = Math.max(0, b - a);
+      const rise = Math.max(0, deck - Math.min(startGround, endGround));
+      const ramp = Math.min(
+        span * 0.5,
+        Math.max(BRIDGE_MIN_RAMP, (rise * 1.5) / BRIDGE_MAX_GRADE),
+      );
       for (let i = startIdx; i <= endIdx; i++) {
         const s = this.cum[i];
-        const edge = Math.min(s - a, b - s);
-        const t = Math.max(0, Math.min(1, edge / ramp));
-        baseY[i] = deck * t + baseY[i] * (1 - t) * 0.35 + baseY[i] * 0.65 * (1 - t);
+        if (s < a || s > b) continue;
+        const edge = Math.max(0, Math.min(s - a, b - s));
+        const t = ramp > 0 ? smoothstep01(edge / ramp) : 0;
+        this.ys[i] = groundTrackY[i] * (1 - t) + deck * t;
       }
     }
 
-    // gentle smoothing to avoid stair-step elevations
-    const smoothed = new Float32Array(n);
-    const win = 3;
-    for (let i = 0; i < n; i++) {
-      let sum = 0;
-      let cnt = 0;
-      for (let k = -win; k <= win; k++) {
-        let j = i + k;
-        if (this.closedLoop) j = ((j % n) + n) % n;
-        else j = Math.max(0, Math.min(n - 1, j));
-        sum += baseY[j];
-        cnt++;
+    for (const [a, b] of this.tunnels) {
+      const startIdx = this.indexAt(a);
+      const endIdx = this.indexAt(b);
+      const span = Math.max(0, b - a);
+      const ramp = Math.min(TUNNEL_MAX_RAMP, span * 0.5);
+      // Short tagged tunnels still dip below ground without fixed ramps crossing
+      // each other or forcing an implausibly deep, discontinuous profile.
+      const depth = Math.min(TUNNEL_MAX_DEPTH, span * TUNNEL_SHORT_DEPTH_SCALE);
+      for (let i = startIdx; i <= endIdx; i++) {
+        const s = this.cum[i];
+        if (s < a || s > b) continue;
+        const edge = Math.max(0, Math.min(s - a, b - s));
+        const t = ramp > 0 ? smoothstep01(edge / ramp) : 0;
+        const ground = groundTrackY[i];
+        const underground = this.groundYs[i] - depth;
+        this.ys[i] = ground * (1 - t) + underground * t;
       }
-      smoothed[i] = sum / cnt;
     }
-    this.ys.set(smoothed);
 
     this.stations = line.stations
       .map((st) => {
@@ -122,6 +144,7 @@ export class LineGeometry {
           x: this.xs[idx],
           z: this.zs[idx],
           y: this.ys[idx],
+          groundY: this.groundYs[idx],
         };
       })
       .sort((a, b) => a.s - b.s);
@@ -155,6 +178,13 @@ export class LineGeometry {
 
   isInsideTunnel(s: number): boolean {
     return this.tunnels.some(([a, b]) => s >= a && s <= b);
+  }
+
+  private valueAt(values: Float32Array, s: number): number {
+    const idx = Math.min(this.cum.length - 2, this.indexAt(s));
+    const span = this.cum[idx + 1] - this.cum[idx] || 1;
+    const t = Math.max(0, Math.min(1, (s - this.cum[idx]) / span));
+    return values[idx] * (1 - t) + values[idx + 1] * t;
   }
 
   private indexAt(s: number): number {

@@ -25,6 +25,8 @@ export class CameraController {
   private tunnel = false;
   private initial: OrbitState;
   private center: [number, number];
+  private readonly dom: HTMLElement;
+  private navigationPointer: number | null = null;
 
   constructor(
     camera: THREE.PerspectiveCamera,
@@ -35,26 +37,34 @@ export class CameraController {
   ) {
     this.camera = camera;
     this.terrain = terrain;
+    this.dom = dom;
     this.controls = new OrbitControls(camera, dom);
     this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.09;
-    this.controls.rotateSpeed = 0.55;
-    this.controls.zoomSpeed = 1.05;
-    this.controls.panSpeed = 1;
+    this.controls.dampingFactor = 0.12;
+    this.controls.rotateSpeed = 0.5;
+    this.controls.zoomSpeed = 0.65;
+    this.controls.panSpeed = 0.85;
     this.controls.minDistance = 45;
     this.controls.maxDistance = 180000;
     this.controls.maxPolarAngle = Math.PI * 0.485;
     this.controls.screenSpacePanning = false;
     this.controls.zoomToCursor = true;
     this.controls.mouseButtons = {
-      LEFT: THREE.MOUSE.PAN,
-      MIDDLE: THREE.MOUSE.DOLLY,
-      RIGHT: THREE.MOUSE.ROTATE,
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.ROTATE,
+      RIGHT: THREE.MOUSE.PAN,
     };
     this.controls.touches = {
-      ONE: THREE.TOUCH.PAN,
+      ONE: THREE.TOUCH.ROTATE,
       TWO: THREE.TOUCH.DOLLY_PAN,
     };
+    dom.addEventListener('pointerdown', this.onNavigationStart);
+    dom.addEventListener('pointerup', this.onNavigationEnd);
+    dom.addEventListener('pointercancel', this.onNavigationEnd);
+    dom.addEventListener('lostpointercapture', this.onNavigationEnd);
+    dom.addEventListener('mousedown', this.onMiddleMouseDown);
+    dom.addEventListener('auxclick', this.onAuxClick);
+    dom.addEventListener('contextmenu', this.onContextMenu);
 
     const height = Math.min(30000, Math.max(5000, span * 0.045));
     const distance = height * 0.85;
@@ -291,7 +301,43 @@ export class CameraController {
     this.lookAtTarget.copy(this.controls.target);
   }
 
+  private onNavigationStart = (event: PointerEvent): void => {
+    if (event.button === 1) event.preventDefault();
+    if (!this.controls.enabled || event.pointerType === 'touch') return;
+    if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
+    const modified = event.shiftKey || event.ctrlKey || event.metaKey;
+    const rotating = event.button === 2 ? modified : !modified;
+    this.navigationPointer = event.pointerId;
+    this.dom.dataset.navigation = rotating ? 'rotate' : 'pan';
+  };
+
+  private onNavigationEnd = (event: PointerEvent): void => {
+    if (event.pointerId !== this.navigationPointer) return;
+    this.navigationPointer = null;
+    delete this.dom.dataset.navigation;
+  };
+
+  private onMiddleMouseDown = (event: MouseEvent): void => {
+    if (event.button === 1) event.preventDefault();
+  };
+
+  private onAuxClick = (event: MouseEvent): void => {
+    if (event.button === 1) event.preventDefault();
+  };
+
+  private onContextMenu = (event: MouseEvent): void => {
+    event.preventDefault();
+  };
+
   dispose(): void {
+    this.dom.removeEventListener('pointerdown', this.onNavigationStart);
+    this.dom.removeEventListener('pointerup', this.onNavigationEnd);
+    this.dom.removeEventListener('pointercancel', this.onNavigationEnd);
+    this.dom.removeEventListener('lostpointercapture', this.onNavigationEnd);
+    this.dom.removeEventListener('mousedown', this.onMiddleMouseDown);
+    this.dom.removeEventListener('auxclick', this.onAuxClick);
+    this.dom.removeEventListener('contextmenu', this.onContextMenu);
+    delete this.dom.dataset.navigation;
     this.controls.dispose();
   }
 
