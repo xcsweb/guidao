@@ -754,6 +754,39 @@ export class StationDetailLayer {
     return this.detailed;
   }
 
+  /** Replaces one procedural part with the Blender-authored high detail mesh. */
+  applyDetailGeometry(name: string, geometry: THREE.BufferGeometry): boolean {
+    let target: THREE.InstancedMesh | null = null;
+    switch (name) {
+      case 'station_canopy':
+        target = this.roof;
+        break;
+      case 'station_rib':
+        target = this.ribs;
+        break;
+      case 'station_platform_left':
+        target = this.platformL;
+        break;
+      case 'station_platform_right':
+        target = this.platformR;
+        break;
+      case 'station_hall':
+        target = this.hall;
+        break;
+      case 'station_deck':
+        target = this.deck;
+        break;
+      case 'station_girder':
+        target = this.deckGirder;
+        break;
+      default:
+        return false;
+    }
+    target.geometry.dispose();
+    target.geometry = geometry;
+    return true;
+  }
+
   dispose(): void {
     const materials = new Set<THREE.Material>();
     for (const mesh of [
