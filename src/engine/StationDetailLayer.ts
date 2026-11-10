@@ -59,6 +59,25 @@ export class StationDetailLayer {
   private metroMarkerFace: THREE.InstancedMesh;
   private totemPole: THREE.InstancedMesh;
   private totemSign: THREE.InstancedMesh;
+  private ribs: THREE.InstancedMesh;
+  private canopyLights: THREE.InstancedMesh;
+  private benchSeat: THREE.InstancedMesh;
+  private benchBack: THREE.InstancedMesh;
+  private benchLeg: THREE.InstancedMesh;
+  private metroRibs: THREE.InstancedMesh;
+  private deck: THREE.InstancedMesh;
+  private deckGirder: THREE.InstancedMesh;
+  private deckPier: THREE.InstancedMesh;
+  private roofEdge: THREE.InstancedMesh;
+  private skylight: THREE.InstancedMesh;
+  private hallGlass: THREE.InstancedMesh;
+  private hallGlassSide: THREE.InstancedMesh;
+  private hallRoof: THREE.InstancedMesh;
+  private roofBattens: THREE.InstancedMesh;
+  private plaza: THREE.InstancedMesh;
+  private plazaPath: THREE.InstancedMesh;
+  private planter: THREE.InstancedMesh;
+  private hedge: THREE.InstancedMesh;
   private metroConcreteTexture: THREE.CanvasTexture;
   private metroMarkerTexture: THREE.CanvasTexture;
 
@@ -96,7 +115,7 @@ export class StationDetailLayer {
       toneMapped: false,
     });
     const roofMat = new THREE.MeshLambertMaterial({
-      color: 0xffffff,
+      color: 0x55626a,
       side: THREE.DoubleSide,
     });
     const accentMat = new THREE.MeshBasicMaterial({
@@ -139,7 +158,7 @@ export class StationDetailLayer {
     this.tactileR.geometry.translate(3.65, 1.035, 0);
 
     const roofGeo = buildArchRoofGeometry(15.6, 86, 4.55, 1.15, 8);
-    this.roof = this.instanced(roofGeo, roofMat, this.capacity, true);
+    this.roof = this.instanced(roofGeo, roofMat, this.capacity);
 
     const fasciaGeo = new THREE.BoxGeometry(0.16, 0.6, 86);
     this.fasciaL = this.instanced(fasciaGeo.clone(), accentMat, this.capacity, true);
@@ -227,6 +246,117 @@ export class StationDetailLayer {
     const signGeo = new THREE.BoxGeometry(3.2, 1.5, 0.18);
     signGeo.translate(23.2, 5.4, 9.5);
     this.totemSign = this.instanced(signGeo, accentMat, this.capacity, true);
+
+    // Canopy structure: arched ribs, soffit light lines and platform benches.
+    this.ribs = this.instanced(
+      buildArchRibGeometry(15.6, 4.55, 1.15, 0.085),
+      concreteDark,
+      this.capacity * 13,
+    );
+    this.canopyLights = this.instanced(
+      new THREE.BoxGeometry(0.16, 0.055, 5.4),
+      new THREE.MeshBasicMaterial({ color: 0xfff1cd, toneMapped: false }),
+      this.capacity * 12,
+    );
+    const benchMat = new THREE.MeshLambertMaterial({ color: 0x4d6068 });
+    this.benchSeat = this.instanced(
+      new THREE.BoxGeometry(0.6, 0.1, 2.2),
+      benchMat,
+      this.capacity * 4,
+    );
+    this.benchBack = this.instanced(
+      new THREE.BoxGeometry(0.12, 0.62, 2.2),
+      benchMat,
+      this.capacity * 4,
+    );
+    this.benchLeg = this.instanced(
+      new THREE.BoxGeometry(0.1, 0.44, 0.1),
+      poleMat,
+      this.capacity * 16,
+    );
+    this.metroRibs = this.instanced(
+      new THREE.BoxGeometry(6.2, 0.07, 0.12),
+      metroMetalMat,
+      this.capacity * 6,
+    );
+
+    // Elevated station substructure, so platforms sit on a real viaduct deck.
+    const structureMat = new THREE.MeshLambertMaterial({ color: 0x7d868b });
+    const deckMat = new THREE.MeshLambertMaterial({ color: 0x8e969a });
+    this.deck = this.instanced(
+      new THREE.BoxGeometry(4.9, 0.85, 91),
+      deckMat,
+      this.capacity * 2,
+    );
+    this.deckGirder = this.instanced(
+      new THREE.BoxGeometry(0.66, 1.2, 91),
+      structureMat,
+      this.capacity * 2,
+    );
+    this.deckPier = this.instanced(
+      new THREE.BoxGeometry(1.1, 2.9, 1.1),
+      structureMat,
+      this.capacity * 6,
+    );
+    this.roofEdge = this.instanced(
+      new THREE.BoxGeometry(0.42, 0.28, 86),
+      concreteDark,
+      this.capacity * 2,
+    );
+    this.skylight = this.instanced(
+      new THREE.BoxGeometry(2.2, 0.07, 83),
+      new THREE.MeshBasicMaterial({
+        color: 0x9ec6d2,
+        transparent: true,
+        opacity: 0.55,
+        toneMapped: false,
+      }),
+      this.capacity,
+    );
+    const glassMat = new THREE.MeshLambertMaterial({ color: 0x13272e, emissive: 0x0a1b21 });
+    this.hallGlass = this.instanced(
+      new THREE.BoxGeometry(0.09, 1.9, 14.4),
+      glassMat,
+      this.capacity,
+    );
+    this.hallGlassSide = this.instanced(
+      new THREE.BoxGeometry(12.4, 1.9, 0.09),
+      glassMat,
+      this.capacity * 2,
+    );
+    this.hallRoof = this.instanced(
+      new THREE.BoxGeometry(14.4, 0.34, 17.4),
+      structureMat,
+      this.capacity,
+    );
+    // Standing-seam battens keep the large canopy from reading as a flat slab.
+    this.roofBattens = this.instanced(
+      new THREE.BoxGeometry(0.11, 0.05, 84),
+      new THREE.MeshLambertMaterial({ color: 0x6d787f }),
+      this.capacity * 15,
+    );
+
+    // Street-level paving and planting around underground entrances.
+    this.plaza = this.instanced(
+      new THREE.BoxGeometry(9.6, 0.18, 12.6),
+      new THREE.MeshLambertMaterial({ color: 0x8b9296 }),
+      this.capacity * 2,
+    );
+    this.plazaPath = this.instanced(
+      new THREE.BoxGeometry(3.4, 0.16, 32),
+      new THREE.MeshLambertMaterial({ color: 0x848b8f }),
+      this.capacity,
+    );
+    this.planter = this.instanced(
+      new THREE.BoxGeometry(2.4, 0.55, 1.1),
+      new THREE.MeshLambertMaterial({ color: 0x767f83 }),
+      this.capacity * 4,
+    );
+    this.hedge = this.instanced(
+      new THREE.BoxGeometry(2.16, 0.5, 0.88),
+      new THREE.MeshLambertMaterial({ color: 0x2f4a36 }),
+      this.capacity * 4,
+    );
 
     this.group.add(
       this.platformL,
@@ -399,6 +529,25 @@ export class StationDetailLayer {
     this.metroMarkerFace.count = 0;
     this.totemPole.count = 0;
     this.totemSign.count = 0;
+    this.ribs.count = 0;
+    this.canopyLights.count = 0;
+    this.benchSeat.count = 0;
+    this.benchBack.count = 0;
+    this.benchLeg.count = 0;
+    this.metroRibs.count = 0;
+    this.deck.count = 0;
+    this.deckGirder.count = 0;
+    this.deckPier.count = 0;
+    this.roofEdge.count = 0;
+    this.skylight.count = 0;
+    this.hallGlass.count = 0;
+    this.hallGlassSide.count = 0;
+    this.hallRoof.count = 0;
+    this.roofBattens.count = 0;
+    this.plaza.count = 0;
+    this.plazaPath.count = 0;
+    this.planter.count = 0;
+    this.hedge.count = 0;
 
     for (const { model } of medium) {
       detailed.add(model.id);
@@ -437,6 +586,25 @@ export class StationDetailLayer {
       this.metroMarkerFace,
       this.totemPole,
       this.totemSign,
+      this.ribs,
+      this.canopyLights,
+      this.benchSeat,
+      this.benchBack,
+      this.benchLeg,
+      this.metroRibs,
+      this.deck,
+      this.deckGirder,
+      this.deckPier,
+      this.roofEdge,
+      this.skylight,
+      this.hallGlass,
+      this.hallGlassSide,
+      this.hallRoof,
+      this.roofBattens,
+      this.plaza,
+      this.plazaPath,
+      this.planter,
+      this.hedge,
     ]) {
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -461,16 +629,41 @@ export class StationDetailLayer {
           }
           this.write(this.metroLintel, model, x, 3.18, z);
         }
+        for (const dz of [-2.15, 0, 2.15]) {
+          this.write(this.metroRibs, model, 10.85, 3.6, z + dz);
+        }
+        this.write(this.plaza, model, 18.4, 0.09, z);
+        for (const pz of [z - 6.2, z + 6.2]) {
+          this.write(this.planter, model, 18.4, 0.45, pz);
+          this.write(this.hedge, model, 18.4, 0.9, pz);
+        }
       }
+      this.write(this.plazaPath, model, 18.4, 0.08, 0);
       return;
     }
     this.write(this.platformL, model, 0, 0, 0);
     this.write(this.platformR, model, 0, 0, 0);
-    this.write(this.roof, model, 0, 0, 0, true);
+    this.write(this.roof, model, 0, 0, 0);
     this.write(this.fasciaL, model, 0, 0, 0, true);
     this.write(this.fasciaR, model, 0, 0, 0, true);
     this.write(this.hall, model, 0, 0, 0);
     this.write(this.band, model, 0, 0, 0, true);
+    this.write(this.deck, model, -5.15, 0, 0);
+    this.write(this.deck, model, 5.15, 0, 0);
+    this.write(this.deckGirder, model, -7.42, -0.12, 0);
+    this.write(this.deckGirder, model, 7.42, -0.12, 0);
+    this.write(this.roofEdge, model, -7.55, 4.5, 0);
+    this.write(this.roofEdge, model, 7.55, 4.5, 0);
+    this.write(this.skylight, model, 0, 5.72, 0);
+    this.write(this.hallGlass, model, 9.04, 4.4, 0);
+    this.write(this.hallGlassSide, model, 15.5, 4.4, 8.06);
+    this.write(this.hallGlassSide, model, 15.5, 4.4, -8.06);
+    this.write(this.hallRoof, model, 15.5, 7.36, 0);
+    for (let i = 0; i < 15; i++) {
+      const x = -7 + i;
+      const t = x / 7.8;
+      this.write(this.roofBattens, model, x, 4.55 + 1.15 * (1 - t * t) + 0.03, 0);
+    }
   }
 
   private addFull(model: StationModel): void {
@@ -503,6 +696,27 @@ export class StationDetailLayer {
       const z = -34 + i * 12.4;
       this.write(this.pillars, model, -7.1, 0, z);
       this.write(this.pillars, model, 7.1, 0, z);
+    }
+    for (let i = 0; i < 13; i++) {
+      this.write(this.ribs, model, 0, 0, -36 + i * 6);
+    }
+    for (const z of [-30, 0, 30]) {
+      for (const x of [-5.15, 5.15]) {
+        this.write(this.deckPier, model, x, -1.87, z);
+      }
+    }
+    for (let i = 0; i < 6; i++) {
+      const z = -30 + i * 12;
+      this.write(this.canopyLights, model, -3.2, 5.28, z);
+      this.write(this.canopyLights, model, 3.2, 5.28, z);
+    }
+    for (const z of [-14, 14]) {
+      for (const x of [-6.3, 6.3]) {
+        this.write(this.benchSeat, model, x, 1.44, z);
+        this.write(this.benchBack, model, x + Math.sign(x) * 0.24, 1.79, z);
+        this.write(this.benchLeg, model, x, 1.22, z - 0.8);
+        this.write(this.benchLeg, model, x, 1.22, z + 0.8);
+      }
     }
     this.write(this.entrance, model, 0, 0, 0);
     this.write(this.totemPole, model, 0, 0, 0);
@@ -569,6 +783,25 @@ export class StationDetailLayer {
       this.metroMarkerFace,
       this.totemPole,
       this.totemSign,
+      this.ribs,
+      this.canopyLights,
+      this.benchSeat,
+      this.benchBack,
+      this.benchLeg,
+      this.metroRibs,
+      this.deck,
+      this.deckGirder,
+      this.deckPier,
+      this.roofEdge,
+      this.skylight,
+      this.hallGlass,
+      this.hallGlassSide,
+      this.hallRoof,
+      this.roofBattens,
+      this.plaza,
+      this.plazaPath,
+      this.planter,
+      this.hedge,
     ]) {
       mesh.geometry.dispose();
       const material = mesh.material;
@@ -635,6 +868,24 @@ function makeMetroMarkerTexture(): THREE.CanvasTexture {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;
   return texture;
+}
+
+/** A slim arch rib, used under the canopy to read as structure rather than a shell. */
+function buildArchRibGeometry(
+  width: number,
+  baseY: number,
+  rise: number,
+  radius: number,
+): THREE.BufferGeometry {
+  const halfW = width / 2;
+  const points: THREE.Vector3[] = [];
+  for (let i = 0; i <= 10; i++) {
+    const x = -halfW + (width * i) / 10;
+    const t = x / halfW;
+    points.push(new THREE.Vector3(x, baseY + rise * (1 - t * t) - radius * 1.4, 0));
+  }
+  const curve = new THREE.CatmullRomCurve3(points);
+  return new THREE.TubeGeometry(curve, 24, radius, 5, false);
 }
 
 function buildArchRoofGeometry(
