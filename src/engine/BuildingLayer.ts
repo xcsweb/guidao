@@ -28,8 +28,16 @@ export class BuildingLayer {
     this.geometry = new THREE.BoxGeometry(1, 1, 1);
     this.geometry.translate(0, 0.5, 0);
     const uv = this.geometry.getAttribute('uv') as THREE.BufferAttribute;
-    for (let i = 0; i < uv.count; i++) {
-      if (i >= 8 && i < 16) uv.setXY(i, 0.02, 0.02);
+    // Top faces (vertices 8-15) sample a dedicated concrete roof patch.
+    const roofUv: Array<[number, number]> = [
+      [0.78, 0.82],
+      [0.93, 0.82],
+      [0.93, 0.97],
+      [0.78, 0.97],
+    ];
+    for (let i = 8; i < 16; i++) {
+      const [u, v] = roofUv[(i - 8) % 4];
+      uv.setXY(i, u, v);
     }
     uv.needsUpdate = true;
     this.texture = createFacadeTexture();
@@ -126,37 +134,63 @@ export class BuildingLayer {
 }
 
 function createFacadeTexture(): THREE.CanvasTexture {
-  const size = 128;
+  const size = 256;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#4b5057';
+  ctx.fillStyle = '#3f474e';
   ctx.fillRect(0, 0, size, size);
-  ctx.fillStyle = '#70747a';
-  ctx.fillRect(0, 0, 6, 6);
 
   const cols = 8;
   const rows = 12;
-  const pad = 2;
   const w = size / cols;
   const h = size / rows;
+  const pad = 3;
   for (let row = 0; row < rows; row++) {
+    // Spandrel band under each floor line gives the facade a horizontal rhythm.
+    ctx.fillStyle = 'rgba(20, 25, 30, 0.5)';
+    ctx.fillRect(0, row * h + h - 2, size, 2);
+    ctx.fillStyle = 'rgba(150, 158, 164, 0.12)';
+    ctx.fillRect(0, row * h, size, 1);
     for (let col = 0; col < cols; col++) {
       const r = Math.random();
-      const lit = r > 0.52;
+      const lit = r > 0.66;
       ctx.fillStyle = lit
-        ? r > 0.86
-          ? 'rgba(255, 214, 150, 0.95)'
-          : 'rgba(226, 190, 132, 0.72)'
-        : 'rgba(22, 27, 33, 0.9)';
-      ctx.fillRect(col * w + pad, row * h + pad, w - pad * 2, h - pad * 2.1);
-      if (lit) {
-        ctx.fillStyle = 'rgba(255,255,255,0.06)';
-        ctx.fillRect(col * w + pad, row * h + pad, w - pad * 2, 1);
-      }
+        ? r > 0.94
+          ? 'rgba(255, 216, 158, 0.92)'
+          : 'rgba(222, 186, 132, 0.6)'
+        : 'rgba(22, 28, 34, 0.85)';
+      ctx.fillRect(col * w + pad, row * h + pad, w - pad * 2, h - pad * 2.4);
+      // Window head highlight and sill shadow.
+      ctx.fillStyle = lit ? 'rgba(255, 255, 255, 0.1)' : 'rgba(120, 138, 150, 0.18)';
+      ctx.fillRect(col * w + pad, row * h + pad, w - pad * 2, 1);
+      ctx.fillStyle = 'rgba(8, 12, 15, 0.55)';
+      ctx.fillRect(col * w + pad, row * h + h - pad * 2.4, w - pad * 2, 1);
     }
   }
+
+  // Concrete roof patch, sampled by the top faces of every building box.
+  const rx = Math.round(0.78 * size);
+  const ry = Math.round(0.03 * size);
+  const rw = Math.round((0.93 - 0.78) * size);
+  const rh = Math.round((0.97 - 0.82) * size);
+  ctx.fillStyle = '#8d9499';
+  ctx.fillRect(rx, ry, rw, rh);
+  ctx.strokeStyle = 'rgba(58, 66, 71, 0.55)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(rx, ry + (rh * i) / 4);
+    ctx.lineTo(rx + rw, ry + (rh * i) / 4);
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(104, 112, 117, 0.9)';
+  ctx.fillRect(rx + rw * 0.12, ry + rh * 0.18, rw * 0.22, rh * 0.2);
+  ctx.fillRect(rx + rw * 0.58, ry + rh * 0.55, rw * 0.26, rh * 0.24);
+  ctx.fillStyle = 'rgba(226, 231, 233, 0.35)';
+  ctx.fillRect(rx, ry, rw, 1);
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;

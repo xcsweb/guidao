@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Quality } from '@/state/store';
 import type { LineGeometry, PathSample } from './LineGeometry';
 import type { SimTrain } from '@/sim/Timetable';
@@ -29,6 +30,9 @@ export class TrainLayer {
   readonly headlight: THREE.InstancedMesh;
   readonly taillight: THREE.InstancedMesh;
   readonly bogies: THREE.InstancedMesh;
+  readonly roofUnits: THREE.InstancedMesh;
+  readonly pantographs: THREE.InstancedMesh;
+  readonly doors: THREE.InstancedMesh;
   readonly points: THREE.Points;
   readonly group = new THREE.Group();
   private maxDistance = 26000;
@@ -105,6 +109,44 @@ export class TrainLayer {
     this.bogies.count = 0;
     this.group.add(this.bogies);
 
+    // Roof equipment and pantograph break up the long, otherwise plain car body.
+    const roofGeo = new RoundedBoxGeometry(1.55, 0.3, 3.1, 1, 0.06);
+    roofGeo.translate(0, 3.29, 0);
+    const roofMat = new THREE.MeshLambertMaterial({ color: 0xa7b0b6 });
+    this.roofUnits = new THREE.InstancedMesh(
+      roofGeo,
+      roofMat,
+      this.capacity * CAR_OFFSETS.length * 2,
+    );
+    this.roofUnits.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.roofUnits.frustumCulled = false;
+    this.roofUnits.count = 0;
+    this.group.add(this.roofUnits);
+
+    const pantoMat = new THREE.MeshLambertMaterial({ color: 0x5d666d });
+    this.pantographs = new THREE.InstancedMesh(
+      buildPantographGeometry(),
+      pantoMat,
+      this.capacity,
+    );
+    this.pantographs.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.pantographs.frustumCulled = false;
+    this.pantographs.count = 0;
+    this.group.add(this.pantographs);
+
+    // Recessed door seams: two per car side, four pairs along the body.
+    const doorGeo = new THREE.BoxGeometry(0.06, 2.35, 0.14);
+    const doorMat = new THREE.MeshLambertMaterial({ color: 0x39474f });
+    this.doors = new THREE.InstancedMesh(
+      doorGeo,
+      doorMat,
+      this.capacity * CAR_OFFSETS.length * 8,
+    );
+    this.doors.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.doors.frustumCulled = false;
+    this.doors.count = 0;
+    this.group.add(this.doors);
+
     const dotGeo = new THREE.BufferGeometry();
     const positions = new Float32Array(this.capacity * 3);
     const colors = new Float32Array(this.capacity * 3);
@@ -137,6 +179,9 @@ export class TrainLayer {
     this.headlight.visible = !overview;
     this.taillight.visible = !overview;
     this.bogies.visible = !overview;
+    this.roofUnits.visible = !overview;
+    this.pantographs.visible = !overview;
+    this.doors.visible = !overview;
   }
 
   setFollowedTrain(id: string | null): void {
@@ -155,6 +200,9 @@ export class TrainLayer {
     let trainCount = 0;
     let carCount = 0;
     let bogieCount = 0;
+    let roofCount = 0;
+    let doorCount = 0;
+    let pantoCount = 0;
     const camX = camera.position.x;
     const camZ = camera.position.z;
     const maxDistance = this.localOnly && !this.overview ? 1000 : this.maxDistance;
@@ -210,6 +258,41 @@ export class TrainLayer {
         if (ci === CAR_OFFSETS.length - 1) this.headlight.setMatrixAt(trainCount, this.matrix);
         if (ci === 0) this.taillight.setMatrixAt(trainCount, this.matrix);
 
+        const baseX = this.pos.x;
+        const baseY = this.pos.y;
+        const baseZ = this.pos.z;
+        const rx = this.right.x;
+        const ry = this.right.y;
+        const rz = this.right.z;
+        const ux = this.up.x;
+        const uy = this.up.y;
+        const uz = this.up.z;
+        const fx = this.forward.x;
+        const fy = this.forward.y;
+        const fz = this.forward.z;
+
+        for (const dz of [-3.5, 3.5]) {
+          this.pos.set(baseX + fx * dz, baseY + fy * dz, baseZ + fz * dz);
+          this.matrix.compose(this.pos, this.quat, this.scale);
+          this.roofUnits.setMatrixAt(roofCount++, this.matrix);
+        }
+
+        this.pos.set(baseX + ux * 3.13 + fx * 1.4, baseY + uy * 3.13 + fy * 1.4, baseZ + uz * 3.13 + fz * 1.4);
+        this.matrix.compose(this.pos, this.quat, this.scale);
+        if (ci === 1) this.pantographs.setMatrixAt(pantoCount++, this.matrix);
+
+        for (const dx of [-1.455, 1.455]) {
+          for (const dz of [-5.05, -1.85, 1.85, 5.05]) {
+            this.pos.set(
+              baseX + rx * dx + ux * 1.52 + fx * dz,
+              baseY + ry * dx + uy * 1.52 + fy * dz,
+              baseZ + rz * dx + uz * 1.52 + fz * dz,
+            );
+            this.matrix.compose(this.pos, this.quat, this.scale);
+            this.doors.setMatrixAt(doorCount++, this.matrix);
+          }
+        }
+
         for (const bogieOffset of [-4.25, 4.25]) {
           this.pos.set(
             this.carSample.x + laneX + tx * bogieOffset,
@@ -232,12 +315,18 @@ export class TrainLayer {
     this.headlight.count = trainCount;
     this.taillight.count = trainCount;
     this.bogies.count = bogieCount;
+    this.roofUnits.count = roofCount;
+    this.pantographs.count = pantoCount;
+    this.doors.count = doorCount;
     this.visibleCount = trainCount;
     this.mesh.instanceMatrix.needsUpdate = true;
     this.windows.instanceMatrix.needsUpdate = true;
     this.headlight.instanceMatrix.needsUpdate = true;
     this.taillight.instanceMatrix.needsUpdate = true;
     this.bogies.instanceMatrix.needsUpdate = true;
+    this.roofUnits.instanceMatrix.needsUpdate = true;
+    this.pantographs.instanceMatrix.needsUpdate = true;
+    this.doors.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
     this.points.geometry.setDrawRange(0, trainCount);
     posAttr.needsUpdate = true;
@@ -298,8 +387,37 @@ export class TrainLayer {
     this.bogies.geometry.dispose();
     (this.bogies.material as THREE.Material).dispose();
     this.bogies.dispose();
+    this.roofUnits.geometry.dispose();
+    (this.roofUnits.material as THREE.Material).dispose();
+    this.roofUnits.dispose();
+    this.pantographs.geometry.dispose();
+    (this.pantographs.material as THREE.Material).dispose();
+    this.pantographs.dispose();
+    this.doors.geometry.dispose();
+    (this.doors.material as THREE.Material).dispose();
+    this.doors.dispose();
     this.points.geometry.dispose();
     (this.points.material as THREE.Material).dispose();
     this.points.dispose();
   }
+}
+
+/** Folded diamond pantograph: base frame, two arms and a contact bar. */
+function buildPantographGeometry(): THREE.BufferGeometry {
+  const base = new THREE.BoxGeometry(1.5, 0.09, 0.85);
+  base.translate(0, 0.05, 0);
+  const armA = new THREE.BoxGeometry(0.06, 0.98, 0.06);
+  armA.rotateX(0.62);
+  armA.translate(0, 0.52, 0.17);
+  const armB = new THREE.BoxGeometry(0.06, 0.98, 0.06);
+  armB.rotateX(-0.62);
+  armB.translate(0, 0.52, -0.17);
+  const bar = new THREE.BoxGeometry(1.35, 0.05, 0.1);
+  bar.translate(0, 0.97, 0);
+  const merged = mergeGeometries([base, armA, armB, bar], false);
+  base.dispose();
+  armA.dispose();
+  armB.dispose();
+  bar.dispose();
+  return merged ?? new THREE.BoxGeometry(1.4, 0.1, 0.8);
 }

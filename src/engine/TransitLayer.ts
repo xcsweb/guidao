@@ -54,8 +54,10 @@ export class TransitLayer {
   private railCells = new Set<string>();
   private readonly railCellSize = 15;
   private hiddenStations: Set<string> = new Set();
+  private trackBedTexture: THREE.CanvasTexture;
 
   constructor(network: NetworkFile, terrain: TerrainSystem) {
+    this.trackBedTexture = makeTrackBedTexture();
     for (const line of network.lines) {
       const geo = new LineGeometry(line, terrain);
       this.geometries.set(line.id, geo);
@@ -148,9 +150,10 @@ export class TransitLayer {
     glow.frustumCulled = true;
     glow.renderOrder = 3;
     const casingMat = new THREE.MeshBasicMaterial({
-      color: 0x0e1419,
+      map: this.trackBedTexture,
+      color: 0xdfe6ea,
       transparent: true,
-      opacity: 0.86,
+      opacity: 0.92,
       toneMapped: false,
       depthWrite: false,
     });
@@ -487,5 +490,58 @@ export class TransitLayer {
     (this.stationMesh.material as THREE.Material).dispose();
     this.ringMesh.geometry.dispose();
     (this.ringMesh.material as THREE.Material).dispose();
+    this.trackBedTexture.dispose();
   }
+}
+
+/**
+ * Ballast with sleepers, mapped through the ribbon UVs (v advances 20 m per
+ * tile), so surface track reads as a real track bed instead of a flat casing.
+ */
+function makeTrackBedTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 512;
+  const ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+  if (ctx) {
+    const bed = ctx.createLinearGradient(0, 0, 128, 0);
+    bed.addColorStop(0, '#141b20');
+    bed.addColorStop(0.1, '#1f282e');
+    bed.addColorStop(0.5, '#232d34');
+    bed.addColorStop(0.9, '#1f282e');
+    bed.addColorStop(1, '#141b20');
+    ctx.fillStyle = bed;
+    ctx.fillRect(0, 0, 128, 512);
+
+    let seed = 20261110;
+    const random = (): number => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    for (let i = 0; i < 1100; i++) {
+      const tone = 110 + Math.floor(random() * 70);
+      ctx.fillStyle = `rgba(${tone}, ${tone + 8}, ${tone + 12}, ${0.05 + random() * 0.06})`;
+      ctx.fillRect(random() * 128, random() * 512, 1 + random() * 2.2, 1 + random() * 2.2);
+    }
+
+    const sleepers = 30;
+    const step = 512 / sleepers;
+    for (let i = 0; i < sleepers; i++) {
+      const y = i * step + step * 0.28;
+      const h = step * 0.44;
+      const grad = ctx.createLinearGradient(0, y, 0, y + h);
+      grad.addColorStop(0, 'rgba(96, 106, 111, 0.62)');
+      grad.addColorStop(1, 'rgba(58, 66, 71, 0.4)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(14, y, 100, h);
+      ctx.fillStyle = 'rgba(4, 8, 10, 0.42)';
+      ctx.fillRect(14, y + h, 100, 2);
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.anisotropy = 4;
+  return texture;
 }
