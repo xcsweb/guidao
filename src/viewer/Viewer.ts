@@ -15,6 +15,7 @@ import { TunnelPortalLayer } from '@/engine/TunnelPortalLayer';
 import { BuildingLayer } from '@/engine/BuildingLayer';
 import { WaterLayer } from '@/engine/WaterLayer';
 import { TrainLayer } from '@/engine/TrainLayer';
+import { loadDetailKit } from '@/engine/ModelKit';
 import { CameraController } from '@/engine/CameraController';
 import { VegetationLayer } from '@/engine/VegetationLayer';
 import { Timetable, SimClock, initialSimTime, type SimTrain } from '@/sim/Timetable';
@@ -167,6 +168,15 @@ export class Viewer {
     this.root.add(this.vegetation.group);
     this.trains = new TrainLayer();
     this.root.add(this.trains.group);
+
+    // Blender-authored kits upgrade the procedural parts in place; if the
+    // fetch fails the scene keeps the procedural geometry untouched.
+    loadDetailKit('rolling-stock.glb', (name, geometry) =>
+      this.trains.applyDetailGeometry(name, geometry),
+    );
+    loadDetailKit('station-kit.glb', (name, geometry) =>
+      this.stationDetail.applyDetailGeometry(name, geometry),
+    );
 
     const bounds = loaded.manifest.boundsLocal;
     const span = Math.max(bounds[2] - bounds[0], bounds[3] - bounds[1]);

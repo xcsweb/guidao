@@ -371,6 +371,33 @@ export class TrainLayer {
     };
   }
 
+  /** Replaces one procedural part with the Blender-authored high detail mesh. */
+  applyDetailGeometry(name: string, geometry: THREE.BufferGeometry): boolean {
+    let target: THREE.InstancedMesh | null = null;
+    switch (name) {
+      case 'train_body':
+        target = this.mesh;
+        break;
+      case 'train_window':
+        target = this.windows;
+        break;
+      case 'train_roof':
+        target = this.roofUnits;
+        break;
+      case 'train_pantograph':
+        target = this.pantographs;
+        break;
+      case 'train_bogie':
+        target = this.bogies;
+        break;
+      default:
+        return false;
+    }
+    target.geometry.dispose();
+    target.geometry = geometry;
+    return true;
+  }
+
   dispose(): void {
     this.mesh.geometry.dispose();
     (this.mesh.material as THREE.Material).dispose();
