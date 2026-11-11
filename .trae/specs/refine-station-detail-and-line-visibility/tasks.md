@@ -21,10 +21,10 @@
   - [x] SubTask 5.1: 寻找 CC0 / CC-BY 的站台设施、家具、标识等现成模型，记录来源链接、作者与许可
   - [x] SubTask 5.2: 将可用模型转换为 GLB 放入 `public/models/third-party/`，统一尺度与风格并接入对应图层；无合适资源时回退自建 Blender 模型
 
-- [ ] Task 6: 构建、断言、截图验证并提交部署
+- [x] Task 6: 构建、断言、截图验证并提交部署
   - [x] SubTask 6.1: 执行 `npm run build` 与 `npm run test:profile`
   - [x] SubTask 6.2: 真实浏览器截取地上站、地下站台、地下出入口、候车视角与线路透视效果，检查无破面、无遮挡异常、无控制台错误
-  - [ ] SubTask 6.3: 提交代码、合并 main、推送并验证 GitHub Pages 部署成功（遵循 `guidao-commit-deploy` 技能）
+  - [x] SubTask 6.3: 提交代码、合并 main、推送并验证 GitHub Pages 部署成功（遵循 `guidao-commit-deploy` 技能）
 
 - [x] Task 7: 修复候车环顾后退出时残余阻尼导致原视角偏移
   - [x] SubTask 7.1: 退出候车前清空 OrbitControls 残余旋转增量，确保恢复位置与进入前一致
