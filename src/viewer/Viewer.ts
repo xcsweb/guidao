@@ -41,6 +41,13 @@ void main() {
   gl_FragColor = vec4(col, 1.0);
 }`;
 
+interface ActivePlatformView {
+  stationId: string;
+  geo: LineGeometry;
+  s: number;
+  underground: boolean;
+}
+
 export class Viewer {
   readonly api: ViewerApi;
   private canvas: HTMLCanvasElement;
@@ -70,6 +77,7 @@ export class Viewer {
   private selectedLineId: string | null = null;
   private followId: string | null = null;
   private followMissCount = 0;
+  private platform: ActivePlatformView | null = null;
   private tunnelActiveView = false;
   private currentTrains: SimTrain[] = [];
   private resolved: ResolvedTrains | null = null;
@@ -371,6 +379,17 @@ export class Viewer {
       }
     }
 
+    if (!this.followId && this.platform?.underground) {
+      const { geo, s } = this.platform;
+      cameraTunnel = true;
+      tunnelActive = true;
+      tunnelGeo = geo;
+      tunnelS = s;
+      tunnelDirection = 0;
+      const range = geo.tunnels.find(([a, b]) => s >= a && s <= b);
+      if (range) tunnelDepth = Math.min(s - range[0], range[1] - s);
+    }
+
     if (tunnelActive && tunnelGeo) {
       this.tunnel.update(tunnelGeo, tunnelS, tunnelDirection, true);
     } else {
@@ -380,7 +399,7 @@ export class Viewer {
     this.transit.group.visible = !cameraTunnel;
     this.transit.labelGroup.visible = !cameraTunnel;
     this.stationDetail.group.visible = !cameraTunnel;
-    this.trains.setLocalOnly(this.followId !== null);
+    this.trains.setLocalOnly(this.followId !== null || this.platform !== null);
     const layers = store.getSnapshot().layers;
     this.buildings.setVisible(!cameraTunnel && layers.buildings && this.quality !== 'low');
     this.water.setVisible(!cameraTunnel && layers.water);
@@ -399,6 +418,7 @@ export class Viewer {
       if (this.frameIndex % 10 === 0) this.water.update(this.camera);
     }
     this.transit.setOverviewMode(overview);
+    this.transit.setUndergroundXray(store.getSnapshot().undergroundXray);
     this.trains.setOverviewMode(overview);
     if (!cameraTunnel) {
       this.stationDetail.update(this.camera, overview);
@@ -558,6 +578,7 @@ export class Viewer {
     return {
       selectLine: (id) => {
         if (this.followId) this.exitFollow();
+        if (this.platform) this.exitPlatform();
         this.selectedLineId = id;
         this.transit.setSelected(id);
         if (!id) {
@@ -569,11 +590,12 @@ export class Viewer {
         store.patch({ selectedLineId: id });
       },
       flyToLine: (id) => {
+        if (this.followId) this.exitFollow();
+        if (this.platform) this.exitPlatform();
         if (!id) {
           this.cameraController.resetView();
           return;
         }
-        if (this.followId) this.exitFollow();
         const info = this.transit.getLineBounds(id);
         if (info) this.cameraController.flyTo(info.center, info.bounds);
       },
@@ -583,14 +605,21 @@ export class Viewer {
           this.notify('该班次已结束运行，请选择其他列车');
           return;
         }
+        this.platform = null;
         this.followId = id;
         this.followMissCount = 0;
         this.trains.setFollowedTrain(id);
         this.cameraController.enterFollow();
-        store.patch({ follow: this.trainInfo(train) });
+        store.patch({ follow: this.trainInfo(train), platformStation: null });
       },
       exitFollow: () => {
         this.exitFollow();
+      },
+      enterPlatformView: (stationId) => {
+        this.enterPlatform(stationId);
+      },
+      exitPlatformView: () => {
+        this.exitPlatform();
       },
       togglePause: () => {
         const paused = !this.clock.paused;
@@ -625,12 +654,14 @@ export class Viewer {
         const pos = this.transit.stationPositions.get(id);
         if (!pos) return;
         if (this.followId) this.exitFollow();
+        if (this.platform) this.exitPlatform();
         const focusY = station.stationType === 'underground' ? pos.groundY : pos.trackY;
         this.cameraController.flyToStation(pos.x, pos.z, focusY);
         store.patch({ station });
       },
       resetView: () => {
         if (this.followId) this.exitFollow();
+        if (this.platform) this.exitPlatform();
         this.selectedLineId = null;
         this.transit.setSelected(null);
         this.cameraController.resetView();
@@ -639,6 +670,66 @@ export class Viewer {
       setStatsVisible: (value) => store.patch({ statsVisible: value }),
       zoomBy: (factor) => this.cameraController.zoomBy(factor),
     };
+  }
+
+  private enterPlatform(stationId: string): void {
+    const station = this.loaded.network.stations.find((s) => s.id === stationId);
+    const anchor = this.transit.stationPositions.get(stationId);
+    const geo = anchor ? this.transit.geometries.get(anchor.lineId) : null;
+    const point = geo?.stations.find((s) => s.id === stationId);
+    if (!station || !anchor || !geo || !point) {
+      this.notify('该站暂无可用站台视角');
+      return;
+    }
+
+    const sample = { x: 0, y: 0, z: 0, tx: 0, tz: 0 };
+    geo.sampleAt(point.s, sample);
+    const underground = geo.isInsideTunnel(point.s);
+    const position = new THREE.Vector3();
+    const target = new THREE.Vector3();
+
+    if (underground) {
+      const platformLat = 5.8;
+      position.set(
+        sample.x - sample.tz * platformLat,
+        (sample.y + 1.05 + 1.7) * this.exaggeration,
+        sample.z + sample.tx * platformLat,
+      );
+      target.set(sample.x, (sample.y + 1.8) * this.exaggeration, sample.z);
+    } else {
+      const yaw = Math.atan2(sample.tx, sample.tz);
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const platformX = -5.15;
+      const platformZ = 8;
+      position.set(
+        sample.x + platformX * cos + platformZ * sin,
+        (sample.y + 0.995 + 1.7) * this.exaggeration,
+        sample.z - platformX * sin + platformZ * cos,
+      );
+      target.set(
+        sample.x + platformZ * sin,
+        (sample.y + 1.8) * this.exaggeration,
+        sample.z + platformZ * cos,
+      );
+    }
+
+    if (this.followId) {
+      this.followId = null;
+      this.followMissCount = 0;
+      this.trains.setFollowedTrain(null);
+    }
+    this.platform = { stationId, geo, s: point.s, underground };
+    this.cameraController.enterPlatform(position, target);
+    store.patch({ station, platformStation: station, follow: null, followTunnel: false });
+  }
+
+  private exitPlatform(): void {
+    if (!this.platform) return;
+    this.platform = null;
+    this.trains.setLocalOnly(this.followId !== null);
+    this.cameraController.exitPlatform();
+    store.patch({ platformStation: null, followTunnel: false });
   }
 
   private exitFollow(): void {

@@ -238,6 +238,51 @@ export class LineGeometry {
     return geo;
   }
 
+  buildTunnelRibbon(width: number, yOffset: number): THREE.BufferGeometry | null {
+    if (!this.tunnels.length) return null;
+    const positions: number[] = [];
+    const indices: number[] = [];
+    const sample: PathSample = { x: 0, y: 0, z: 0, tx: 0, tz: 0 };
+    const half = width / 2;
+
+    for (const [rangeStart, rangeEnd] of this.tunnels) {
+      const a = Math.max(0, Math.min(this.length, rangeStart));
+      const b = Math.max(a, Math.min(this.length, rangeEnd));
+      if (b <= a) continue;
+
+      const distances = [a];
+      const startIdx = this.indexAt(a);
+      const endIdx = this.indexAt(b);
+      for (let i = startIdx + 1; i <= endIdx; i++) {
+        if (this.cum[i] > a && this.cum[i] < b) distances.push(this.cum[i]);
+      }
+      distances.push(b);
+
+      const base = positions.length / 3;
+      for (const s of distances) {
+        this.sampleAt(s, sample);
+        const px = -sample.tz * half;
+        const pz = sample.tx * half;
+        const y = sample.y + yOffset;
+        positions.push(
+          sample.x + px, y, sample.z + pz,
+          sample.x - px, y, sample.z - pz,
+        );
+      }
+      for (let i = 0; i < distances.length - 1; i++) {
+        const v = base + i * 2;
+        indices.push(v, v + 2, v + 1, v + 1, v + 2, v + 3);
+      }
+    }
+
+    if (!indices.length) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeBoundingSphere();
+    return geo;
+  }
+
   buildRibbon(width: number, yOffset: number, closed: boolean): THREE.BufferGeometry {
     const n = this.xs.length;
     const positions = new Float32Array(n * 2 * 3);

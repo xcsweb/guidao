@@ -1,6 +1,6 @@
 import type { ViewerApi } from '@/state/api';
 import type { LayerState, Quality } from '@/state/store';
-import { useAppState } from '@/state/store';
+import { setUndergroundXray, useAppState } from '@/state/store';
 import { PauseIcon, PlayIcon, ResetIcon } from './Icons';
 
 interface ControlDockProps {
@@ -119,6 +119,16 @@ export function ControlDock({ api }: ControlDockProps) {
               {item.label}
             </button>
           ))}
+          <button
+            type="button"
+            className={`chip chip-toggle${state.undergroundXray ? ' is-active' : ''}`}
+            onClick={() => setUndergroundXray(!state.undergroundXray)}
+            disabled={disabled}
+            aria-pressed={state.undergroundXray}
+            title="近景时透过地形显示地下线路，总览时不叠加"
+          >
+            地下线路透视
+          </button>
         </div>
       </div>
 
@@ -145,7 +155,7 @@ export function ControlDock({ api }: ControlDockProps) {
           <button
             type="button"
             onClick={() => api?.zoomBy(0.78)}
-            disabled={disabled || !!state.follow}
+            disabled={disabled || !!state.follow || !!state.platformStation}
             aria-label="放大地图"
             title="放大（+）"
           >
@@ -154,7 +164,7 @@ export function ControlDock({ api }: ControlDockProps) {
           <button
             type="button"
             onClick={() => api?.zoomBy(1.28)}
-            disabled={disabled || !!state.follow}
+            disabled={disabled || !!state.follow || !!state.platformStation}
             aria-label="缩小地图"
             title="缩小（-）"
           >

@@ -1768,6 +1768,25 @@ button:disabled {
   background: rgba(255, 255, 255, 0.09);
 }
 
+.platform-hint {
+  margin: 12px 0;
+  padding: 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.app.is-platform-view #scene {
+  cursor: grab;
+}
+
+.app.is-platform-view #scene:active {
+  cursor: grabbing;
+}
+
 /* --------------------------------------------------------------- stats panel */
 
 .stats-panel {

@@ -9,7 +9,7 @@ import { FollowHud } from './ui/FollowHud';
 import { Header } from './ui/Header';
 import { LinePanel } from './ui/LinePanel';
 import { LoadingOverlay } from './ui/LoadingOverlay';
-import { StationCard } from './ui/StationCard';
+import { PlatformHud, StationCard } from './ui/StationCard';
 import { StatsPanel } from './ui/StatsPanel';
 import { Toast, showToast } from './ui/Toast';
 import { TrainPanel } from './ui/TrainPanel';
@@ -116,6 +116,7 @@ export function App() {
 
       if (event.key === 'Escape') {
         api?.exitFollow();
+        api?.exitPlatformView();
         store.patch({ station: null });
         setLinePanelOpen(false);
         setTrainPanelOpen(false);
@@ -137,9 +138,9 @@ export function App() {
 
   return (
     <div
-      className={`app${following ? ' is-following' : ''}${
-        trainPanelOpen && state.selectedLineId ? ' is-train-panel-open' : ''
-      }`}
+      className={`app${following || state.platformStation ? ' is-following' : ''}${
+        state.platformStation ? ' is-platform-view' : ''
+      }${trainPanelOpen && state.selectedLineId ? ' is-train-panel-open' : ''}`}
     >
       <div className="scene-shell">
         <canvas id="scene" ref={canvasRef} aria-label="重庆轨道交通三维场景" />
@@ -165,6 +166,7 @@ export function App() {
           onToggle={() => setTrainPanelOpen((open) => !open)}
         />
         <FollowHud api={api} />
+        <PlatformHud api={api} />
         <StatsPanel api={api} />
         <StationCard api={api} />
         <Attribution />

@@ -4,6 +4,8 @@ export interface ViewerApi {
   selectLine(id: string | null): void;
   followTrain(id: string): void;
   exitFollow(): void;
+  enterPlatformView(stationId: string): void;
+  exitPlatformView(): void;
   togglePause(): void;
   setMultiplier(value: number): void;
   setQuality(quality: Quality): void;
