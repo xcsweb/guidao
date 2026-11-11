@@ -2,7 +2,7 @@
 
 ## Why
 
-上一轮已用无头 Blender 生成列车与地上站套件，但站台细节（地上站台设施、地下第一视角站台空间、地图近景地下出入口）仍有明显提升空间。同时，近景模式使用真实轨道几何，地下区间被地形遮挡，导致用户放大后线路「消失」，只有缩到全重庆总览才能看到线网，浏览体验不连贯。
+上一轮已用无头 Blender 生成列车与地上站套件，但站台细节（地上站台设施、地下第一视角站台空间、地图近景地下出入口）仍有明显提升空间。同时，近景模式使用真实轨道几何，地下区间被地形遮挡，导致用户放大后线路「消失」，只有缩到全重庆总览才能看到线网，浏览体验不连贯。用户还希望在地上和地下站台提供一个「上车前」的候车视角，能站台上观察车来车往；并允许引入网上已有的第三方建模来加快细节提升。
 
 ## What Changes
 
@@ -10,12 +10,15 @@
 - 继续用无头 Blender 精修**地下站**：第一视角地下站台空间（站台板、安全门、墙顶、梁柱、导向、座椅、照明层次）与地图近景地下出入口（出入口亭、雨棚、扶梯、栏杆、标识柱），保持街面锚点与既有竖向剖面不变。
 - 为**近景地下区间**提供「地下线路透视」显示：以线路色、关闭深度测试的半透明叠加渲染地下线路走向，使放大后仍能辨识线位；地上区间保持现状，不提供全图浮线。
 - 在 UI 增加「地下线路透视」开关，默认开启；若验证发现视觉混乱或性能不可接受，则回退该叠加并保持现状。
-- 通过真实浏览器截图验证地上站、地下站台、地下出入口与线路透视效果，完成后提交代码并部署。
+- 为**地上站和地下站**新增「站台候车视角」（上车前视角）：相机位于站台候车区、面向轨道，可观察列车进站、停靠与出站；支持环顾与退出返回自由视角，与既有列车跟随视角并存。
+- 允许引入**第三方现成模型**（如 CC0 / CC-BY 的站台设施、家具、标识等）补充细节；仅使用许可明确的资源并记录来源与作者，无法获取合适资源时回退自建 Blender 模型。
+- 通过真实浏览器截图验证地上站、地下站台、地下出入口、候车视角与线路透视效果，完成后提交代码并部署。
 
 ## Impact
 
-- Affected specs: `station-presentation`、`transit-3d-viewer`、`underground-line-visibility`
-- Affected code: `scripts/blender/build_detail_models.py`、`public/models/*.glb`、`src/engine/ModelKit.ts`、`src/engine/StationDetailLayer.ts`、`src/engine/TunnelLayer.ts`、`src/engine/TransitLayer.ts`、`src/viewer/Viewer.ts`、UI 开关与状态
+- Affected specs: `station-presentation`、`transit-3d-viewer`、`underground-line-visibility`、`platform-waiting-view`
+- Affected code: `scripts/blender/build_detail_models.py`、`public/models/*.glb`、`src/engine/ModelKit.ts`、`src/engine/StationDetailLayer.ts`、`src/engine/TunnelLayer.ts`、`src/engine/TransitLayer.ts`、`src/engine/CameraController.ts`、`src/viewer/Viewer.ts`、`src/state/api.ts`、UI 开关与状态
+- Affected assets: 可新增 `public/models/third-party/` 存放许可明确的第三方模型，并附来源与许可说明
 - Affected data: 沿用现有 `network.json` 与 DEM，不新增平行线路数据；不改动既有竖向剖面与站点锚点
 
 ## 非目标
@@ -23,6 +26,7 @@
 - 不重做整条线路的地下空间或完整站厅室内场景。
 - 不改变线路、站点归属、时刻数据与既有相机键位。
 - 不为地上区间增加浮空叠加线，避免画面混乱。
+- 不引入许可不明或需要付费/登录才能获取的第三方模型；候车视角不替代既有列车跟随视角。
 
 ## ADDED Requirements
 
@@ -67,6 +71,39 @@
 
 - **WHEN** 用户缩放到全重庆总览
 - **THEN** 沿用既有抽象线网显示，透视叠加不重复叠加造成过亮或重影
+
+### Requirement: 站台候车视角（上车前视角）
+
+系统 SHALL 为地上站和地下站提供站台候车视角：相机位于站台候车区、约站立人眼高度、面向轨道，用户可环顾并观察列车进站、停靠与出站，并可退出返回自由视角。该视角与既有列车跟随视角并存，互不影响。
+
+#### Scenario: 地上站候车视角
+
+- **WHEN** 用户在选中地上站后进入「站台候车视角」
+- **THEN** 相机位于站台上面向轨道，能看到站台设施与对向/本向列车来往，视线不被雨棚或站厅完全遮挡
+
+#### Scenario: 地下站候车视角
+
+- **WHEN** 用户在选中地下站后进入「站台候车视角」
+- **THEN** 相机位于地下站台候车区面向轨道，能看到站台空间、导向与列车进出站，不进入列车车体或隧道壁内
+
+#### Scenario: 环顾与退出
+
+- **WHEN** 用户在候车视角中拖动环顾或点击退出
+- **THEN** 可在合理范围内环顾，退出后恢复进入前的自由视角与相机状态，既有跟随列车、站点选择与缩放功能不受影响
+
+### Requirement: 第三方模型资源使用与许可
+
+系统 SHALL 允许使用网上已有的第三方模型补充站台细节，但仅限许可明确（如 CC0、CC-BY）的资源，并在仓库中记录来源链接、作者与许可；无法获取合适资源时使用自建 Blender 模型。
+
+#### Scenario: 引入第三方模型
+
+- **WHEN** 某个站台部件采用第三方模型
+- **THEN** 该模型许可允许再分发，来源与许可已记录，模型已转换为可加载的 GLB 且风格、尺度与场景一致
+
+#### Scenario: 无合适第三方资源
+
+- **WHEN** 未找到许可合适或风格匹配的第三方模型
+- **THEN** 使用自建 Blender 模型实现同等细节，不阻塞交付
 
 ### Requirement: 验证与部署
 

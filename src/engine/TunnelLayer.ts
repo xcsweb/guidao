@@ -1,10 +1,17 @@
 import * as THREE from 'three';
 import type { Quality } from '@/state/store';
 import type { LineGeometry, PathSample, StationPoint } from './LineGeometry';
+import {
+  loadThirdPartyProp,
+  ThirdPartyInstances,
+  type ThirdPartyPropName,
+} from './ModelKit';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 const ONE = new THREE.Vector3(1, 1, 1);
+const UNDERGROUND_PROP_KEYS: ThirdPartyPropName[] = ['bench', 'vending', 'trash', 'exit'];
+const UNDERGROUND_PLATFORM_Y = 1.05;
 
 interface ProfilePoint {
   lat: number;
@@ -56,13 +63,23 @@ export class TunnelLayer {
   private doorGlassMesh: THREE.InstancedMesh;
   private doorPostMesh: THREE.InstancedMesh;
   private doorHeaderMesh: THREE.InstancedMesh;
+  private doorMeetingMesh: THREE.InstancedMesh;
+  private doorSillMesh: THREE.InstancedMesh;
   private columnMesh: THREE.InstancedMesh;
+  private columnBaseMesh: THREE.InstancedMesh;
+  private columnCapMesh: THREE.InstancedMesh;
+  private columnBandMesh: THREE.InstancedMesh;
   private beamMesh: THREE.InstancedMesh;
+  private conduitMesh: THREE.InstancedMesh;
   private benchSeatMesh: THREE.InstancedMesh;
   private benchBackMesh: THREE.InstancedMesh;
   private benchLegMesh: THREE.InstancedMesh;
+  private benchArmMesh: THREE.InstancedMesh;
   private platformLightMesh: THREE.InstancedMesh;
+  private wallLightMesh: THREE.InstancedMesh;
   private platformPoolMesh: THREE.InstancedMesh;
+  private directionBoardMesh: THREE.InstancedMesh;
+  private signHangerMesh: THREE.InstancedMesh;
   private endWallMesh: THREE.InstancedMesh;
   private endHeaderMesh: THREE.InstancedMesh;
   private stationInstances: THREE.InstancedMesh[] = [];
@@ -88,6 +105,8 @@ export class TunnelLayer {
   private signalMat = new THREE.MeshBasicMaterial({ color: 0x8ef3a6, toneMapped: false });
   private signalGeo = new THREE.SphereGeometry(0.18, 8, 6);
   private signGeo = new THREE.PlaneGeometry(6.8, 1.7);
+  private directionSignGeo = new THREE.PlaneGeometry(3.55, 0.72);
+  private directionSignMat: THREE.MeshBasicMaterial;
 
   private ballastTexture: THREE.CanvasTexture;
   private poolTexture: THREE.CanvasTexture;
@@ -95,6 +114,8 @@ export class TunnelLayer {
   private wallTexture: THREE.CanvasTexture;
   private tactileTexture: THREE.CanvasTexture;
   private signCache = new Map<string, THREE.MeshBasicMaterial>();
+  private thirdPartyProps: Partial<Record<ThirdPartyPropName, ThirdPartyInstances>> = {};
+  private disposed = false;
 
   private sample: PathSample = { x: 0, y: 0, z: 0, tx: 0, tz: 0 };
   private sample2: PathSample = { x: 0, y: 0, z: 0, tx: 0, tz: 0 };
@@ -191,6 +212,11 @@ export class TunnelLayer {
     this.doorFrameMat = new THREE.MeshLambertMaterial({ color: 0x89979f });
     this.benchMat = new THREE.MeshLambertMaterial({ color: 0x60717b });
     this.platformLightMat = new THREE.MeshBasicMaterial({ color: 0xe2f1ff, toneMapped: false });
+    this.directionSignMat = new THREE.MeshBasicMaterial({
+      map: makeDirectionSignTexture(),
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
 
     this.shellMesh = new THREE.Mesh(new THREE.BufferGeometry(), this.shellMat);
     this.ballastMesh = new THREE.Mesh(new THREE.BufferGeometry(), this.ballastMat);
@@ -230,9 +256,34 @@ export class TunnelLayer {
       this.lineMat,
       48,
     );
+    this.doorMeetingMesh = this.stationInstanced(
+      new THREE.BoxGeometry(0.15, 1.72, 0.065),
+      this.doorFrameMat,
+      48,
+    );
+    this.doorSillMesh = this.stationInstanced(
+      new THREE.BoxGeometry(0.18, 0.14, 2.96),
+      this.doorFrameMat,
+      48,
+    );
     this.columnMesh = this.stationInstanced(
       new THREE.BoxGeometry(0.44, 3.95, 0.44),
       this.doorFrameMat,
+      14,
+    );
+    this.columnBaseMesh = this.stationInstanced(
+      new THREE.BoxGeometry(0.62, 0.18, 0.62),
+      this.doorFrameMat,
+      14,
+    );
+    this.columnCapMesh = this.stationInstanced(
+      new THREE.BoxGeometry(0.68, 0.22, 0.68),
+      this.ceilingMat,
+      14,
+    );
+    this.columnBandMesh = this.stationInstanced(
+      new THREE.BoxGeometry(0.46, 0.26, 0.46),
+      this.lineMat,
       14,
     );
     this.beamMesh = this.stationInstanced(
@@ -240,6 +291,9 @@ export class TunnelLayer {
       this.ceilingMat,
       14,
     );
+    const conduitGeo = new THREE.CylinderGeometry(0.055, 0.055, 6.15, 6);
+    conduitGeo.rotateX(Math.PI / 2);
+    this.conduitMesh = this.stationInstanced(conduitGeo, this.doorFrameMat, 48);
     this.benchSeatMesh = this.stationInstanced(
       new THREE.BoxGeometry(0.62, 0.12, 2.2),
       this.benchMat,
@@ -255,15 +309,35 @@ export class TunnelLayer {
       this.doorFrameMat,
       16,
     );
+    this.benchArmMesh = this.stationInstanced(
+      new THREE.BoxGeometry(0.68, 0.08, 0.09),
+      this.benchMat,
+      16,
+    );
     this.platformLightMesh = this.stationInstanced(
       new THREE.BoxGeometry(0.44, 0.065, 2.5),
       this.platformLightMat,
+      18,
+    );
+    this.wallLightMesh = this.stationInstanced(
+      new THREE.BoxGeometry(0.12, 0.12, 2.5),
+      this.fixtureMat,
       18,
     );
     this.platformPoolMesh = this.stationInstanced(
       new THREE.PlaneGeometry(7.5, 7.5),
       this.poolMat,
       18,
+    );
+    this.directionBoardMesh = this.stationInstanced(
+      new THREE.BoxGeometry(3.8, 0.9, 0.12),
+      this.wallBaseMat,
+      4,
+    );
+    this.signHangerMesh = this.stationInstanced(
+      new THREE.BoxGeometry(0.06, 0.84, 0.06),
+      this.doorFrameMat,
+      8,
     );
     this.endWallMesh = this.stationInstanced(
       new THREE.BoxGeometry(5.9, 4.08, 0.24),
@@ -291,6 +365,31 @@ export class TunnelLayer {
     );
     this.group.visible = false;
     this.setQuality('medium');
+    this.loadThirdPartyProps();
+  }
+
+  private loadThirdPartyProps(): void {
+    const capacities: Record<ThirdPartyPropName, number> = {
+      bench: 5,
+      railing: 0,
+      vending: 1,
+      trash: 1,
+      billboard: 0,
+      exit: 2,
+    };
+    for (const name of UNDERGROUND_PROP_KEYS) {
+      void loadThirdPartyProp(name, capacities[name]).then((prop) => {
+        if (!prop) return;
+        if (this.disposed) {
+          prop.dispose();
+          return;
+        }
+        this.thirdPartyProps[name] = prop;
+        this.platformDetails.add(prop.group);
+        this.lastBuildS = Number.NEGATIVE_INFINITY;
+        this.lastStationKey = '';
+      });
+    }
   }
 
   private stationInstanced(
@@ -673,6 +772,17 @@ export class TunnelLayer {
       buildStripGeometry(geo, [range], -4.55 * side, 9.2 * side, 5.14, step),
       this.ceilingMat,
     );
+    // A recessed cable tray and two metal lips run above the platform wall.
+    this.addStationSurface(
+      buildStripGeometry(geo, [range], 8.38 * side, 8.82 * side, 4.58, step),
+      this.ceilingMat,
+    );
+    for (const lat of [8.38, 8.82]) {
+      this.addStationSurface(
+        buildWallGeometry(geo, [range], lat * side, 4.43, 4.64, step),
+        this.ceilingMat,
+      );
+    }
 
     // Full-height screen doors stay continuous at every quality level. Their
     // inner face is still outside the 2.94 m train body on the adjacent track.
@@ -683,6 +793,8 @@ export class TunnelLayer {
       const sv = range[0] + margin + (i + 0.5) * 3;
       this.writeStation(this.doorGlassMesh, geo, sv, doorLat, 1.88);
       this.writeStation(this.doorHeaderMesh, geo, sv, doorLat, 2.96);
+      this.writeStation(this.doorMeetingMesh, geo, sv, doorLat, 1.91);
+      this.writeStation(this.doorSillMesh, geo, sv, doorLat, 1.13);
       this.writeStation(this.doorPostMesh, geo, sv - 1.5, doorLat, 2.04);
     }
     this.writeStation(
@@ -697,7 +809,16 @@ export class TunnelLayer {
     const firstColumn = Math.ceil((range[0] + 4) / columnSpacing) * columnSpacing;
     for (let sv = firstColumn; sv <= range[1] - 4; sv += columnSpacing) {
       this.writeStation(this.columnMesh, geo, sv, 7.62 * side, 3.025);
+      this.writeStation(this.columnBaseMesh, geo, sv, 7.62 * side, 1.14);
+      this.writeStation(this.columnCapMesh, geo, sv, 7.62 * side, 4.94);
+      this.writeStation(this.columnBandMesh, geo, sv, 7.62 * side, 2.78);
       this.writeStation(this.beamMesh, geo, sv, 2.3 * side, 5);
+    }
+
+    const conduitSpacing = this.quality === 'low' ? 8 : 6;
+    for (let sv = range[0] + 3; sv <= range[1] - 3; sv += conduitSpacing) {
+      this.writeStation(this.conduitMesh, geo, sv, 8.52 * side, 4.51);
+      this.writeStation(this.conduitMesh, geo, sv, 8.70 * side, 4.51);
     }
 
     const benchOffsets =
@@ -706,25 +827,63 @@ export class TunnelLayer {
         : this.quality === 'medium'
           ? [-32, 0, 32]
           : [-28, 28];
+    const bench = this.thirdPartyProps.bench;
     for (const offset of benchOffsets) {
       const sv = station.s + offset;
       if (sv < range[0] + 4 || sv > range[1] - 4) continue;
-      this.writeStation(this.benchSeatMesh, geo, sv, 8.18 * side, 1.57);
-      this.writeStation(this.benchBackMesh, geo, sv, 8.51 * side, 1.91);
-      this.writeStation(this.benchLegMesh, geo, sv - 0.72, 8.18 * side, 1.29);
-      this.writeStation(this.benchLegMesh, geo, sv + 0.72, 8.18 * side, 1.29);
+      if (bench) {
+        this.writeThirdPartyProp(
+          bench,
+          geo,
+          sv,
+          8.18 * side,
+          UNDERGROUND_PLATFORM_Y,
+          side > 0 ? 0 : Math.PI,
+        );
+      } else {
+        this.writeStation(this.benchSeatMesh, geo, sv, 8.18 * side, 1.57);
+        this.writeStation(this.benchBackMesh, geo, sv, 8.51 * side, 1.91);
+        this.writeStation(this.benchLegMesh, geo, sv - 0.72, 8.18 * side, 1.29);
+        this.writeStation(this.benchLegMesh, geo, sv + 0.72, 8.18 * side, 1.29);
+        this.writeStation(this.benchArmMesh, geo, sv - 0.9, 8.18 * side, 1.84);
+        this.writeStation(this.benchArmMesh, geo, sv + 0.9, 8.18 * side, 1.84);
+      }
     }
+    this.addThirdPartyProps(geo, context);
 
     const lightSpacing = this.quality === 'high' ? 8.5 : this.quality === 'medium' ? 12 : 18;
     const firstLight = Math.ceil((range[0] + 3) / lightSpacing) * lightSpacing;
     for (let sv = firstLight; sv <= range[1] - 3; sv += lightSpacing) {
       this.writeStation(this.platformLightMesh, geo, sv, 6.1 * side, 4.8);
+      this.writeStation(this.wallLightMesh, geo, sv, 8.96 * side, 4.30);
       this.writeStationPool(geo, sv, 6.1 * side, 1.078);
     }
 
     for (const sv of range) {
       this.writeStation(this.endWallMesh, geo, sv, 6.19 * side, 3.09);
       this.writeStation(this.endHeaderMesh, geo, sv, -0.63 * side, 4.72);
+    }
+
+    const directionOffsets =
+      this.quality === 'high' ? [-30, 0, 30] : this.quality === 'medium' ? [-24, 24] : [0];
+    for (const offset of directionOffsets) {
+      const sv = station.s + offset;
+      if (sv < range[0] + 4 || sv > range[1] - 4) continue;
+      this.writeStation(this.directionBoardMesh, geo, sv, 6.05 * side, 3.74);
+      this.writeStation(this.signHangerMesh, geo, sv, 4.85 * side, 4.61);
+      this.writeStation(this.signHangerMesh, geo, sv, 7.25 * side, 4.61);
+      for (const face of [-1, 1]) {
+        geo.sampleAt(sv + face * 0.071, this.sample);
+        const sign = new THREE.Mesh(this.directionSignGeo, this.directionSignMat);
+        sign.position.set(
+          this.sample.x - this.sample.tz * 6.05 * side,
+          this.sample.y + 3.74,
+          this.sample.z + this.sample.tx * 6.05 * side,
+        );
+        sign.rotation.y =
+          Math.atan2(this.sample.tx, this.sample.tz) + (face < 0 ? Math.PI : 0);
+        this.platformSigns.add(sign);
+      }
     }
 
     const signOffsets =
@@ -748,6 +907,72 @@ export class TunnelLayer {
       mesh.instanceMatrix.needsUpdate = true;
       mesh.visible = mesh.count > 0;
     }
+    for (const name of UNDERGROUND_PROP_KEYS) this.thirdPartyProps[name]?.finish();
+  }
+
+  private addThirdPartyProps(geo: LineGeometry, context: StationContext): void {
+    const { station, range, side } = context;
+    const vending = this.thirdPartyProps.vending;
+    const trash = this.thirdPartyProps.trash;
+    const vendingS = station.s + 10;
+    if (vending && vendingS >= range[0] + 4 && vendingS <= range[1] - 4) {
+      this.writeThirdPartyProp(
+        vending,
+        geo,
+        vendingS,
+        8.45 * side,
+        UNDERGROUND_PLATFORM_Y,
+        side * Math.PI * 0.5,
+      );
+    }
+    const trashS = station.s + 13;
+    if (trash && trashS >= range[0] + 4 && trashS <= range[1] - 4) {
+      this.writeThirdPartyProp(
+        trash,
+        geo,
+        trashS,
+        8.35 * side,
+        UNDERGROUND_PLATFORM_Y,
+      );
+    }
+    const exit = this.thirdPartyProps.exit;
+    if (exit) {
+      this.writeThirdPartyProp(
+        exit,
+        geo,
+        range[0] + 0.16,
+        6.19 * side,
+        3.1,
+        -Math.PI * 0.5,
+      );
+      this.writeThirdPartyProp(
+        exit,
+        geo,
+        range[1] - 0.16,
+        6.19 * side,
+        3.1,
+        Math.PI * 0.5,
+      );
+    }
+  }
+
+  private writeThirdPartyProp(
+    prop: ThirdPartyInstances,
+    geo: LineGeometry,
+    sv: number,
+    lat: number,
+    yOffset: number,
+    yaw = 0,
+  ): void {
+    geo.sampleAt(sv, this.sample);
+    this.pos.set(
+      this.sample.x - this.sample.tz * lat,
+      this.sample.y + yOffset,
+      this.sample.z + this.sample.tx * lat,
+    );
+    this.quat.setFromAxisAngle(UP, Math.atan2(this.sample.tx, this.sample.tz) + yaw);
+    this.matrix.compose(this.pos, this.quat, ONE);
+    prop.add(this.matrix);
   }
 
   private addStationSurface(
@@ -860,10 +1085,13 @@ export class TunnelLayer {
       mesh.count = 0;
       mesh.visible = false;
     }
+    for (const name of UNDERGROUND_PROP_KEYS) this.thirdPartyProps[name]?.reset();
     this.lastStationKey = '';
   }
 
   dispose(): void {
+    this.disposed = true;
+    for (const name of UNDERGROUND_PROP_KEYS) this.thirdPartyProps[name]?.dispose();
     for (const material of this.signCache.values()) {
       material.map?.dispose();
       material.dispose();
@@ -892,9 +1120,12 @@ export class TunnelLayer {
     this.doorFrameMat.dispose();
     this.benchMat.dispose();
     this.platformLightMat.dispose();
+    this.directionSignMat.map?.dispose();
+    this.directionSignMat.dispose();
     this.signalMat.dispose();
     this.signalGeo.dispose();
     this.signGeo.dispose();
+    this.directionSignGeo.dispose();
     this.shellMesh.geometry.dispose();
     this.ballastMesh.geometry.dispose();
     this.railMeshL.geometry.dispose();
@@ -1041,6 +1272,46 @@ function buildWallGeometry(
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
   return geometry;
+}
+
+function makeDirectionSignTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 256;
+  const ctx = canvas.getContext?.('2d');
+  if (ctx) {
+    ctx.fillStyle = '#17313d';
+    ctx.fillRect(0, 0, 1024, 256);
+    ctx.fillStyle = '#f2f7f7';
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 82px Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('←', 34, 116);
+    ctx.font = '700 61px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.fillText('出入口', 142, 99);
+    ctx.fillStyle = '#b9cbd2';
+    ctx.font = '600 31px Arial, sans-serif';
+    ctx.fillText('EXIT', 148, 177);
+    ctx.strokeStyle = '#66818d';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(512, 34);
+    ctx.lineTo(512, 222);
+    ctx.stroke();
+    ctx.fillStyle = '#f2f7f7';
+    ctx.font = '700 61px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.fillText('乘车', 566, 99);
+    ctx.fillStyle = '#b9cbd2';
+    ctx.font = '600 31px Arial, sans-serif';
+    ctx.fillText('TRAINS', 570, 177);
+    ctx.fillStyle = '#f2f7f7';
+    ctx.font = '700 82px Arial, sans-serif';
+    ctx.fillText('→', 866, 116);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
 }
 
 function makeBallastTexture(): THREE.CanvasTexture {

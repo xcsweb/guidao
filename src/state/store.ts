@@ -66,6 +66,7 @@ export interface AppState {
   };
   quality: Quality;
   exaggeration: number;
+  undergroundXray: boolean;
   layers: LayerState;
   stats: {
     fps: number;
@@ -75,6 +76,7 @@ export interface AppState {
   };
   statsVisible: boolean;
   station: StationData | null;
+  platformStation: StationData | null;
   stationBoard: StationCall[];
   lineBoard: LineBoard | null;
   service: ServiceConfig | null;
@@ -101,10 +103,12 @@ const initialState: AppState = {
   sim: { timeSec: 7 * 3600 + 30 * 60, multiplier: 10, paused: false },
   quality: 'medium',
   exaggeration: 1,
+  undergroundXray: true,
   layers: { buildings: true, water: true, labels: true, trains: true },
   stats: { fps: 0, drawCalls: 0, triangles: 0, chunks: 0 },
   statsVisible: false,
   station: null,
+  platformStation: null,
   stationBoard: [],
   lineBoard: null,
   service: null,
@@ -159,6 +163,10 @@ export const store = new Store();
 
 export function useAppState(): AppState {
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+}
+
+export function setUndergroundXray(enabled: boolean): void {
+  store.patch({ undergroundXray: enabled });
 }
 
 export function lineSummaries(lines: LineData[]): LineSummary[] {

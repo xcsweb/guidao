@@ -1,0 +1,60 @@
+第三方 3D 模型来源与许可
+下载及核验日期：2026-11-11
+
+以下模型均从 Poly Pizza 的公开静态地址直接下载，无需登录。
+所有文件仅重命名，未修改几何、材质或嵌入元数据。
+模型页面标注的作者和许可以下述记录为准。
+
+1. station-bench.glb
+   原始名称：Japanese Train Station Bench
+   作者：Andrew-John Hickman
+   来源页面：https://poly.pizza/m/0lu4tQLuAqL
+   GLB 下载地址：https://static.poly.pizza/7a34ec4b-b314-4c30-b863-415883c3e1d2.glb
+   许可：Creative Commons Attribution 3.0 Unported (CC BY 3.0)
+   许可全文：https://creativecommons.org/licenses/by/3.0/
+   文件大小：69,304 bytes
+
+2. railing.glb
+   原始名称：railing
+   作者：g w
+   来源页面：https://poly.pizza/m/4APZeLcSRuI
+   GLB 下载地址：https://static.poly.pizza/921000c0-7653-4e92-bf79-405c9ef1129a.glb
+   许可：Creative Commons Attribution 3.0 Unported (CC BY 3.0)
+   许可全文：https://creativecommons.org/licenses/by/3.0/
+   文件大小：17,468 bytes
+
+3. vending-machine.glb
+   原始名称：Vending Machine
+   作者：Don Carson
+   来源页面：https://poly.pizza/m/0CX6wj64Swu
+   GLB 下载地址：https://static.poly.pizza/f12c4236-7a2b-4b50-aa1f-fa2575fab9ae.glb
+   许可：Creative Commons Attribution 3.0 Unported (CC BY 3.0)
+   许可全文：https://creativecommons.org/licenses/by/3.0/
+   文件大小：249,008 bytes
+
+4. trash-bin.glb
+   原始名称：Trashcan
+   作者：Kenney
+   来源页面：https://poly.pizza/m/eoC8NFaafh
+   GLB 下载地址：https://static.poly.pizza/e61da622-f907-479d-93db-9e600c7e5c73.glb
+   许可：Creative Commons CC0 1.0 Universal (CC0 1.0)
+   许可全文：https://creativecommons.org/publicdomain/zero/1.0/
+   文件大小：13,452 bytes
+
+5. exit-sign.glb
+   原始名称：Fire Exit Sign
+   作者：J-Toastie
+   来源页面：https://poly.pizza/m/gpft2tHZv4
+   GLB 下载地址：https://static.poly.pizza/0eb025ce-cee5-4747-a980-21db9a21932b.glb
+   许可：Creative Commons Attribution 3.0 Unported (CC BY 3.0)
+   许可全文：https://creativecommons.org/licenses/by/3.0/
+   文件大小：62,376 bytes
+
+6. billboard.glb
+   原始名称：Billboard
+   作者：Poly by Google
+   来源页面：https://poly.pizza/m/3ALIEkWNbgR
+   GLB 下载地址：https://static.poly.pizza/4b4c3363-d721-4d39-ad13-f90b2e0fe67d.glb
+   许可：Creative Commons Attribution 3.0 Unported (CC BY 3.0)
+   许可全文：https://creativecommons.org/licenses/by/3.0/
+   文件大小：66,696 bytes

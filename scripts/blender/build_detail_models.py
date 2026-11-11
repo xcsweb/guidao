@@ -320,16 +320,34 @@ def build_station():
 
     # ---- station hall (footprint x 9..22, y 0..7, z -8..8)
     hall = Builder()
-    hall.box(9.0, 22.0, 0.5, 7.0, -8.0, 8.0)
+    # Keep the hall envelope visually solid while opening the end-facade
+    # circulation portals used by the exterior stairs and escalators.
+    hall.box(9.0, 22.0, 0.5, 3.35, -8.0, 8.0)
+    hall.box(9.0, 22.0, 6.45, 7.0, -8.0, 8.0)
+    hall.box(21.72, 22.0, 3.35, 6.45, -8.0, 8.0)
     hall.box(8.7, 22.3, 0.0, 0.5, -8.25, 8.25)
     hall.box(8.85, 22.15, 4.28, 4.6, -8.15, 8.15)
     hall.box(8.55, 9.02, 4.14, 4.30, -3.4, 3.4)
     for i in range(7):
         z = -7.2 + i * 2.4
-        hall.box(8.90, 9.05, 0.5, 4.28, z - 0.16, z + 0.16)
+        hall.box(8.90, 9.05, 0.5, 6.45, z - 0.16, z + 0.16)
+    hall.box(8.88, 9.06, 5.35, 5.50, -8.0, 8.0)
     for z in (-8.0, 8.0):
-        hall.box(9.0, 22.0, 6.70, 7.0, z - 0.14, z + 0.14)
+        hall.box(9.0, 9.8, 3.35, 6.45, z - 0.14, z + 0.14)
+        hall.box(16.5, 22.0, 3.35, 6.45, z - 0.14, z + 0.14)
+        hall.box(16.5, 22.0, 5.35, 5.50, z - 0.09, z + 0.09)
+        for x in (17.0, 18.2, 19.4, 20.6, 21.8):
+            hall.box(x - 0.055, x + 0.055, 3.35, 6.45, z - 0.09, z + 0.09)
     finish("station_hall", hall)
+
+    # End glazing is split around the two circulation portals. This geometry
+    # uses the same per-end instance transform as the procedural glass panel.
+    glazing = Builder()
+    glazing.box(-6.2, -5.7, -0.95, 0.95, -0.045, 0.045)
+    for i in range(5):
+        x0 = 1.0 + i * 1.04
+        glazing.box(x0 + 0.025, x0 + 1.015, -0.95, 0.95, -0.045, 0.045)
+    finish("station_hall_glazing", glazing)
 
     # ---- viaduct deck slab
     deck = Builder()
@@ -353,6 +371,139 @@ def build_station():
     finish("station_girder", girder)
 
 
+def build_station_refinements():
+    """Close-range station details, merged into reusable instanced parts."""
+    base, rise, half = 4.55, 1.15, 7.8
+
+    # Longitudinal purlins, knee braces and rainwater pipes turn the canopy
+    # shell and arch ribs into one readable structural system.
+    structure = Builder()
+    for sign in (-1, 1):
+        for x in (2.85, 5.15):
+            px = sign * x
+            py = arch_y(px, base, rise, half) - 0.25
+            structure.box(px - 0.065, px + 0.065, py - 0.08, py + 0.08, -42.4, 42.4)
+        for z in (-34, -21.6, -9.2, 3.2, 15.6, 28):
+            structure.prism(
+                (sign * 7.08, 3.58, z),
+                (sign * 5.85, arch_y(sign * 5.85, base, rise, half) - 0.27, z),
+                0.13,
+                0.16,
+            )
+        for z in (-34, 3.2, 28):
+            structure.cyl_y(1.02, 4.48, sign * 7.18, z, 0.045, seg=6)
+            structure.box(
+                sign * 7.18 - 0.085,
+                sign * 7.18 + 0.085,
+                4.30,
+                4.48,
+                z - 0.08,
+                z + 0.08,
+            )
+    finish("station_canopy_detail", structure)
+
+    # A 5.6 m platform-edge railing module. Railings sit on the outer edge,
+    # leaving the track-side coping and all train clearances untouched.
+    railing = Builder()
+    for z in (-2.8, 0, 2.8):
+        railing.box(-0.04, 0.04, 0.0, 1.04, z - 0.04, z + 0.04)
+    for i in range(1, 8):
+        z = -2.8 + i * 0.7
+        if abs(z) < 0.01:
+            continue
+        railing.box(-0.018, 0.018, 0.20, 0.96, z - 0.018, z + 0.018)
+    railing.box(-0.045, 0.045, 0.96, 1.045, -2.84, 2.84)
+    railing.box(-0.032, 0.032, 0.20, 0.27, -2.84, 2.84)
+    finish("station_platform_railing", railing)
+
+    # Suspended wayfinding board; a textured procedural face is layered over
+    # this frame at runtime so station instances share one readable sign.
+    sign = Builder()
+    sign.box(-1.65, 1.65, -0.45, 0.45, -0.07, 0.07)
+    sign.box(-1.72, 1.72, 0.40, 0.49, -0.085, 0.085)
+    sign.box(-1.72, 1.72, -0.49, -0.40, -0.085, 0.085)
+    for x in (-1.25, 1.25):
+        sign.box(x - 0.035, x + 0.035, 0.48, 1.20, -0.035, 0.035)
+    finish("station_wayfinding", sign)
+
+    # Two end flights, each with a conventional stair and an escalator. The
+    # treads, landings, stringers, balustrades and handrails are one GLB part.
+    circulation = Builder()
+    stair_count = 22
+    escalator_count = 26
+    run = 7.05
+    for end in (-1, 1):
+        for i in range(stair_count):
+            t = (i + 0.5) / stair_count
+            z = end * (15.2 - run * t)
+            top = 0.18 + 4.42 * (i + 1) / stair_count
+            dz = run / stair_count * 0.52
+            circulation.box(10.0, 12.5, top - 0.17, top, z - dz, z + dz)
+            if i in (0, 5, 10, 15, 21):
+                for x in (9.94, 12.56):
+                    circulation.box(x - 0.032, x + 0.032, top, top + 0.93, z - 0.032, z + 0.032)
+        for x in (9.94, 12.56):
+            circulation.prism((x, 0.10, end * 15.28), (x, 4.48, end * 8.08), 0.16, 0.22)
+            circulation.prism((x, 1.12, end * 15.22), (x, 5.54, end * 8.08), 0.075, 0.075)
+
+        for i in range(escalator_count):
+            t = (i + 0.5) / escalator_count
+            z = end * (15.2 - run * t)
+            top = 0.18 + 4.42 * (i + 1) / escalator_count
+            dz = run / escalator_count * 0.51
+            circulation.box(13.95, 15.75, top - 0.12, top, z - dz, z + dz)
+        for x in (13.86, 15.84):
+            circulation.prism((x, 0.10, end * 15.28), (x, 4.48, end * 8.08), 0.18, 0.24)
+            circulation.prism((x, 0.80, end * 15.18), (x, 5.15, end * 8.10), 0.10, 0.58)
+            circulation.prism((x, 1.18, end * 15.18), (x, 5.60, end * 8.10), 0.09, 0.09)
+        circulation.box(9.78, 16.02, 4.42, 4.60, end * 8.08 - 0.34, end * 8.08 + 0.34)
+        circulation.box(9.78, 16.02, 0.0, 0.18, end * 15.20 - 0.40, end * 15.20 + 0.40)
+    finish("station_circulation", circulation)
+
+    # Street-level underground entrance canopy with standing seams, gutters
+    # and rear downpipes. Authored in the station frame like its fallback.
+    metro_roof = Builder()
+    metro_roof.box(7.75, 13.95, 3.39, 3.61, -3.5, 3.5)
+    for z in (-3.5, 3.5):
+        metro_roof.box(7.68, 14.02, 3.42, 3.63, z - 0.08, z + 0.08)
+    for x in (7.78, 13.92):
+        metro_roof.box(x - 0.07, x + 0.07, 3.39, 3.60, -3.56, 3.56)
+    for z in (-2.8, -1.4, 0, 1.4, 2.8):
+        metro_roof.box(7.90, 13.80, 3.61, 3.66, z - 0.025, z + 0.025)
+    for z in (-3.18, 3.18):
+        metro_roof.cyl_y(0.28, 3.46, 13.68, z, 0.045, seg=6)
+        metro_roof.box(13.58, 13.78, 3.26, 3.47, z - 0.07, z + 0.07)
+    finish("station_metro_roof", metro_roof)
+
+    # Sloped entrance handrail module, matching the original 4 m / -0.12 rad
+    # centre line, with vertical balusters and a lower safety rail.
+    handrail = Builder()
+    handrail.prism((-2.0, 0.24, 0), (2.0, -0.24, 0), 0.075, 0.075)
+    handrail.prism((-2.0, -0.42, 0), (2.0, -0.90, 0), 0.045, 0.045)
+    for x in (-1.8, -0.6, 0.6, 1.8):
+        top = -0.12 * x
+        handrail.prism((x, top - 0.72, 0), (x, top, 0), 0.055, 0.055)
+    finish("station_metro_handrail", handrail)
+
+    # Horizontal guards around the street opening, kept at the original
+    # surface anchor rather than following the underground track elevation.
+    guard = Builder()
+    for x in (-2.3, -1.15, 0, 1.15, 2.3):
+        guard.box(x - 0.035, x + 0.035, 0.0, 1.05, -0.035, 0.035)
+    for i in range(1, 12):
+        x = -2.3 + i * 4.6 / 12
+        guard.box(x - 0.016, x + 0.016, 0.18, 0.98, -0.016, 0.016)
+    guard.box(-2.34, 2.34, 0.98, 1.065, -0.045, 0.045)
+    guard.box(-2.34, 2.34, 0.15, 0.21, -0.032, 0.032)
+    finish("station_metro_guardrail", guard)
+
+    # Three raised anti-slip strips per existing stair instance.
+    nosing = Builder()
+    for x in (0.17, 0.225, 0.28):
+        nosing.box(x - 0.009, x + 0.009, 0.061, 0.074, -1.62, 1.62)
+    finish("station_metro_step_nosing", nosing)
+
+
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     reset_scene()
@@ -360,6 +511,7 @@ def main():
     export_glb(os.path.join(OUT_DIR, "rolling-stock.glb"))
     reset_scene()
     build_station()
+    build_station_refinements()
     export_glb(os.path.join(OUT_DIR, "station-kit.glb"))
 
 

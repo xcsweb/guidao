@@ -11,12 +11,14 @@ interface LineVisual {
   glow: THREE.Mesh;
   aura: THREE.Mesh;
   overview: THREE.Mesh;
+  undergroundXray: THREE.Mesh | null;
   casing: THREE.Mesh;
   deck: THREE.Mesh | null;
   coreMat: THREE.MeshBasicMaterial;
   glowMat: THREE.MeshBasicMaterial;
   auraMat: THREE.MeshBasicMaterial;
   overviewMat: THREE.MeshBasicMaterial;
+  undergroundXrayMat: THREE.MeshBasicMaterial | null;
   casingMat: THREE.MeshBasicMaterial;
   deckMat: THREE.MeshLambertMaterial | null;
   bounds: [number, number, number, number];
@@ -51,6 +53,7 @@ export class TransitLayer {
   private labelsEnabled = true;
   private labelDistance = 12000;
   private overview = false;
+  private undergroundXrayEnabled = true;
   private railCells = new Set<string>();
   private readonly railCellSize = 15;
   private hiddenStations: Set<string> = new Set();
@@ -191,7 +194,26 @@ export class TransitLayer {
     overview.frustumCulled = true;
     overview.renderOrder = 21;
     overview.visible = false;
+
+    const undergroundXrayGeo = geo.buildTunnelRibbon(2.6, 0.75);
+    let undergroundXray: THREE.Mesh | null = null;
+    let undergroundXrayMat: THREE.MeshBasicMaterial | null = null;
+    if (undergroundXrayGeo) {
+      undergroundXrayMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(line.color),
+        transparent: true,
+        opacity: 0.62,
+        toneMapped: false,
+        depthTest: false,
+        depthWrite: false,
+      });
+      undergroundXray = new THREE.Mesh(undergroundXrayGeo, undergroundXrayMat);
+      undergroundXray.frustumCulled = true;
+      undergroundXray.renderOrder = 22;
+    }
+
     this.group.add(aura, overview, casing, glow, core);
+    if (undergroundXray) this.group.add(undergroundXray);
 
     const b = line.bounds;
     const visual: LineVisual = {
@@ -201,12 +223,14 @@ export class TransitLayer {
       glow,
       aura,
       overview,
+      undergroundXray,
       casing,
       deck,
       coreMat,
       glowMat,
       auraMat,
       overviewMat,
+      undergroundXrayMat,
       casingMat,
       deckMat,
       bounds: b,
@@ -298,6 +322,9 @@ export class TransitLayer {
       visual.glowMat.opacity = lineId === null ? 0.16 : visual.id === lineId ? 0.34 : 0.03;
       visual.auraMat.opacity = lineId === null ? 0.1 : visual.id === lineId ? 0.16 : 0.03;
       visual.overviewMat.opacity = lineId === null ? 0.82 : visual.id === lineId ? 0.95 : 0.28;
+      if (visual.undergroundXrayMat) {
+        visual.undergroundXrayMat.opacity = lineId === null ? 0.62 : visual.id === lineId ? 0.82 : 0.12;
+      }
     }
     if (lineId) {
       const visual = this.visuals.get(lineId);
@@ -313,6 +340,16 @@ export class TransitLayer {
     if (!enabled) for (const l of this.labels) l.object.visible = false;
   }
 
+  setUndergroundXray(enabled: boolean): void {
+    if (this.undergroundXrayEnabled === enabled) return;
+    this.undergroundXrayEnabled = enabled;
+    for (const visual of this.visuals.values()) {
+      if (visual.undergroundXray) {
+        visual.undergroundXray.visible = enabled && !this.overview;
+      }
+    }
+  }
+
   /** Overview mode hides per-station labels and shows the wide line halo. */
   setOverviewMode(overview: boolean): void {
     if (this.overview === overview) return;
@@ -323,6 +360,9 @@ export class TransitLayer {
       visual.casing.visible = !overview;
       visual.glow.visible = !overview;
       visual.core.visible = !overview;
+      if (visual.undergroundXray) {
+        visual.undergroundXray.visible = !overview && this.undergroundXrayEnabled;
+      }
     }
     if (overview) {
       for (const label of this.labels) label.object.visible = false;
@@ -478,6 +518,8 @@ export class TransitLayer {
       visual.glow.geometry.dispose();
       visual.aura.geometry.dispose();
       visual.overview.geometry.dispose();
+      visual.undergroundXray?.geometry.dispose();
+      visual.undergroundXrayMat?.dispose();
       visual.coreMat.dispose();
       visual.glowMat.dispose();
       visual.auraMat.dispose();

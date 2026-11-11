@@ -3,6 +3,11 @@ import type { NetworkFile, StationData } from '@/data/types';
 import type { LineGeometry, PathSample } from './LineGeometry';
 import type { StationPosition } from './TransitLayer';
 import type { Quality } from '@/state/store';
+import {
+  loadThirdPartyProp,
+  ThirdPartyInstances,
+  type ThirdPartyPropName,
+} from './ModelKit';
 
 interface StationModel {
   id: string;
@@ -23,6 +28,15 @@ interface Ranked {
 
 const UP = new THREE.Vector3(0, 1, 0);
 const ONE = new THREE.Vector3(1, 1, 1);
+const SURFACE_PROP_KEYS: ThirdPartyPropName[] = [
+  'bench',
+  'railing',
+  'vending',
+  'trash',
+  'billboard',
+  'exit',
+];
+const PLATFORM_Y = 0.995;
 
 /**
  * Surface stations have twin platforms and canopies; underground stations only
@@ -74,12 +88,22 @@ export class StationDetailLayer {
   private hallGlassSide: THREE.InstancedMesh;
   private hallRoof: THREE.InstancedMesh;
   private roofBattens: THREE.InstancedMesh;
+  private canopyDetail: THREE.InstancedMesh;
+  private platformRailing: THREE.InstancedMesh;
+  private wayfinding: THREE.InstancedMesh;
+  private wayfindingFace: THREE.InstancedMesh;
+  private circulation: THREE.InstancedMesh;
+  private metroGuardrail: THREE.InstancedMesh;
+  private metroStepNosing: THREE.InstancedMesh;
   private plaza: THREE.InstancedMesh;
   private plazaPath: THREE.InstancedMesh;
   private planter: THREE.InstancedMesh;
   private hedge: THREE.InstancedMesh;
   private metroConcreteTexture: THREE.CanvasTexture;
   private metroMarkerTexture: THREE.CanvasTexture;
+  private stationWayfindingTexture: THREE.CanvasTexture;
+  private thirdPartyProps: Partial<Record<ThirdPartyPropName, ThirdPartyInstances>> = {};
+  private disposed = false;
 
   private capacity: number;
   private detailed = new Set<string>();
@@ -125,6 +149,7 @@ export class StationDetailLayer {
     const hallMat = new THREE.MeshLambertMaterial({ color: 0x969ea3 });
     this.metroConcreteTexture = makeMetroConcreteTexture();
     this.metroMarkerTexture = makeMetroMarkerTexture();
+    this.stationWayfindingTexture = makeStationWayfindingTexture();
     const metroConcreteMat = new THREE.MeshLambertMaterial({
       color: 0xc3c9ca,
       map: this.metroConcreteTexture,
@@ -336,6 +361,39 @@ export class StationDetailLayer {
       this.capacity * 15,
     );
 
+    // Blender upgrades supply the close-range fittings as a handful of shared
+    // meshes. Empty fallbacks simply omit the optional detail if a kit is absent.
+    this.canopyDetail = this.instanced(new THREE.BufferGeometry(), concreteDark, this.capacity);
+    this.platformRailing = this.instanced(
+      new THREE.BufferGeometry(),
+      poleMat,
+      this.capacity * 30,
+    );
+    this.wayfinding = this.instanced(
+      new THREE.BoxGeometry(3.3, 0.9, 0.14),
+      new THREE.MeshLambertMaterial({ color: 0x17313d }),
+      this.capacity * 6,
+    );
+    this.wayfindingFace = this.instanced(
+      new THREE.BoxGeometry(3.12, 0.72, 0.155),
+      new THREE.MeshBasicMaterial({
+        map: this.stationWayfindingTexture,
+        toneMapped: false,
+      }),
+      this.capacity * 6,
+    );
+    this.circulation = this.instanced(new THREE.BufferGeometry(), concreteDark, this.capacity);
+    this.metroGuardrail = this.instanced(
+      new THREE.BufferGeometry(),
+      metroMetalMat,
+      this.capacity * 4,
+    );
+    this.metroStepNosing = this.instanced(
+      new THREE.BufferGeometry(),
+      openingMat,
+      this.capacity * 12,
+    );
+
     // Street-level paving and planting around underground entrances.
     this.plaza = this.instanced(
       new THREE.BoxGeometry(9.6, 0.18, 12.6),
@@ -389,6 +447,32 @@ export class StationDetailLayer {
 
     this.setQuality('medium');
     this.resizeMetrics(viewportHeight, fovDeg);
+    this.loadThirdPartyProps();
+  }
+
+  private loadThirdPartyProps(): void {
+    const surfaceStations = Math.max(1, this.models.filter((model) => !model.underground).length);
+    const perStation: Record<ThirdPartyPropName, number> = {
+      bench: 4,
+      railing: 80,
+      vending: 2,
+      trash: 2,
+      billboard: 1,
+      exit: 2,
+    };
+    for (const name of SURFACE_PROP_KEYS) {
+      void loadThirdPartyProp(name, surfaceStations * perStation[name]).then((prop) => {
+        if (!prop) return;
+        if (this.disposed) {
+          prop.dispose();
+          return;
+        }
+        this.thirdPartyProps[name] = prop;
+        this.group.add(prop.group);
+        this.lastUpdate = 0;
+        this.lastKey = '';
+      });
+    }
   }
 
   private instanced(
@@ -544,10 +628,18 @@ export class StationDetailLayer {
     this.hallGlassSide.count = 0;
     this.hallRoof.count = 0;
     this.roofBattens.count = 0;
+    this.canopyDetail.count = 0;
+    this.platformRailing.count = 0;
+    this.wayfinding.count = 0;
+    this.wayfindingFace.count = 0;
+    this.circulation.count = 0;
+    this.metroGuardrail.count = 0;
+    this.metroStepNosing.count = 0;
     this.plaza.count = 0;
     this.plazaPath.count = 0;
     this.planter.count = 0;
     this.hedge.count = 0;
+    for (const name of SURFACE_PROP_KEYS) this.thirdPartyProps[name]?.reset();
 
     for (const { model } of medium) {
       detailed.add(model.id);
@@ -601,6 +693,13 @@ export class StationDetailLayer {
       this.hallGlassSide,
       this.hallRoof,
       this.roofBattens,
+      this.canopyDetail,
+      this.platformRailing,
+      this.wayfinding,
+      this.wayfindingFace,
+      this.circulation,
+      this.metroGuardrail,
+      this.metroStepNosing,
       this.plaza,
       this.plazaPath,
       this.planter,
@@ -611,6 +710,7 @@ export class StationDetailLayer {
       mesh.visible = mesh.count > 0;
     }
 
+    for (const name of SURFACE_PROP_KEYS) this.thirdPartyProps[name]?.finish();
     this.detailed = detailed;
   }
 
@@ -671,10 +771,16 @@ export class StationDetailLayer {
       for (const z of [-16, 16]) {
         this.write(this.metroFrame, model, 8.6, 1.66, z);
         for (let i = 0; i < 6; i++) {
-          this.write(this.metroSteps, model, 5.25 + i * 0.62, 0.58 - i * 0.075, z);
+          const x = 5.25 + i * 0.62;
+          const y = 0.58 - i * 0.075;
+          this.write(this.metroSteps, model, x, y, z);
+          this.write(this.metroStepNosing, model, x, y, z);
         }
         for (const dz of [-1.96, 1.96]) {
           this.write(this.metroHandrail, model, 6.85, 1.02, z + dz);
+        }
+        for (const dz of [-2.08, 2.08]) {
+          this.write(this.metroGuardrail, model, 6.85, 0.28, z + dz);
         }
       }
       const grilleCount = this.quality === 'high' ? 6 : this.quality === 'medium' ? 4 : 3;
@@ -710,17 +816,79 @@ export class StationDetailLayer {
       this.write(this.canopyLights, model, -3.2, 5.28, z);
       this.write(this.canopyLights, model, 3.2, 5.28, z);
     }
+    const bench = this.thirdPartyProps.bench;
     for (const z of [-14, 14]) {
-      for (const x of [-6.3, 6.3]) {
-        this.write(this.benchSeat, model, x, 1.44, z);
-        this.write(this.benchBack, model, x + Math.sign(x) * 0.24, 1.79, z);
-        this.write(this.benchLeg, model, x, 1.22, z - 0.8);
-        this.write(this.benchLeg, model, x, 1.22, z + 0.8);
+      for (const x of [-6.25, 6.25]) {
+        if (bench) {
+          this.writeProp(bench, model, x, PLATFORM_Y, z, x > 0 ? Math.PI : 0);
+        } else {
+          this.write(this.benchSeat, model, x, 1.44, z);
+          this.write(this.benchBack, model, x + Math.sign(x) * 0.24, 1.79, z);
+          this.write(this.benchLeg, model, x, 1.22, z - 0.8);
+          this.write(this.benchLeg, model, x, 1.22, z + 0.8);
+        }
+      }
+    }
+    this.write(this.canopyDetail, model, 0, 0, 0);
+    this.write(this.circulation, model, 0, 0, 0);
+    const railing = this.thirdPartyProps.railing;
+    for (const x of [-6.78, 6.78]) {
+      if (railing) {
+        for (let i = 0; i < 40; i++) {
+          this.writeProp(railing, model, x, PLATFORM_Y, -39 + i * 2, Math.PI / 2);
+        }
+      } else {
+        for (let i = 0; i < 15; i++) {
+          this.write(this.platformRailing, model, x, 1.035, -39.2 + i * 5.6);
+        }
+      }
+    }
+    this.addThirdPartyProps(model);
+    for (const z of [-24, 0, 24]) {
+      for (const x of [-4.95, 4.95]) {
+        this.write(this.wayfinding, model, x, 3.65, z);
+        this.write(this.wayfindingFace, model, x, 3.65, z);
       }
     }
     this.write(this.entrance, model, 0, 0, 0);
     this.write(this.totemPole, model, 0, 0, 0);
     this.write(this.totemSign, model, 0, 0, 0, true);
+  }
+
+  private addThirdPartyProps(model: StationModel): void {
+    const vending = this.thirdPartyProps.vending;
+    const trash = this.thirdPartyProps.trash;
+    const exit = this.thirdPartyProps.exit;
+    for (const side of [-1, 1]) {
+      if (vending) {
+        this.writeProp(vending, model, side * 6.15, PLATFORM_Y, 6, -side * Math.PI * 0.5);
+      }
+      if (trash) this.writeProp(trash, model, side * 6.1, PLATFORM_Y, 8.2);
+      if (exit) {
+        this.writeProp(
+          exit,
+          model,
+          side * 6.7,
+          1.35,
+          36,
+          side > 0 ? Math.PI : 0,
+        );
+      }
+    }
+    const billboard = this.thirdPartyProps.billboard;
+    if (billboard) this.writeProp(billboard, model, 6.05, PLATFORM_Y, -26.5);
+  }
+
+  private writeProp(
+    prop: ThirdPartyInstances,
+    model: StationModel,
+    lx: number,
+    ly: number,
+    lz: number,
+    yaw = 0,
+  ): void {
+    this.compose(model, lx, ly, lz, yaw);
+    prop.add(this.matrix);
   }
 
   private write(
@@ -742,11 +910,11 @@ export class StationDetailLayer {
     mesh.count = index + 1;
   }
 
-  private compose(model: StationModel, lx: number, ly: number, lz: number): void {
+  private compose(model: StationModel, lx: number, ly: number, lz: number, yaw = 0): void {
     const cos = Math.cos(model.yaw);
     const sin = Math.sin(model.yaw);
     this.pos.set(model.x + lx * cos + lz * sin, model.y + ly, model.z - lx * sin + lz * cos);
-    this.quat.setFromAxisAngle(UP, model.yaw);
+    this.quat.setFromAxisAngle(UP, model.yaw + yaw);
     this.matrix.compose(this.pos, this.quat, ONE);
   }
 
@@ -779,6 +947,33 @@ export class StationDetailLayer {
       case 'station_girder':
         target = this.deckGirder;
         break;
+      case 'station_hall_glazing':
+        target = this.hallGlassSide;
+        break;
+      case 'station_canopy_detail':
+        target = this.canopyDetail;
+        break;
+      case 'station_platform_railing':
+        target = this.platformRailing;
+        break;
+      case 'station_wayfinding':
+        target = this.wayfinding;
+        break;
+      case 'station_circulation':
+        target = this.circulation;
+        break;
+      case 'station_metro_roof':
+        target = this.metroRoof;
+        break;
+      case 'station_metro_handrail':
+        target = this.metroHandrail;
+        break;
+      case 'station_metro_guardrail':
+        target = this.metroGuardrail;
+        break;
+      case 'station_metro_step_nosing':
+        target = this.metroStepNosing;
+        break;
       default:
         return false;
     }
@@ -788,6 +983,8 @@ export class StationDetailLayer {
   }
 
   dispose(): void {
+    this.disposed = true;
+    for (const name of SURFACE_PROP_KEYS) this.thirdPartyProps[name]?.dispose();
     const materials = new Set<THREE.Material>();
     for (const mesh of [
       this.platformL,
@@ -831,6 +1028,13 @@ export class StationDetailLayer {
       this.hallGlassSide,
       this.hallRoof,
       this.roofBattens,
+      this.canopyDetail,
+      this.platformRailing,
+      this.wayfinding,
+      this.wayfindingFace,
+      this.circulation,
+      this.metroGuardrail,
+      this.metroStepNosing,
       this.plaza,
       this.plazaPath,
       this.planter,
@@ -845,7 +1049,44 @@ export class StationDetailLayer {
     for (const material of materials) material.dispose();
     this.metroConcreteTexture.dispose();
     this.metroMarkerTexture.dispose();
+    this.stationWayfindingTexture.dispose();
   }
+}
+
+function makeStationWayfindingTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 768;
+  canvas.height = 192;
+  const ctx = canvas.getContext?.('2d');
+  if (ctx) {
+    ctx.fillStyle = '#17313d';
+    ctx.fillRect(0, 0, 768, 192);
+    ctx.fillStyle = '#f2f7f7';
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 66px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('乘车', 42, 75);
+    ctx.fillStyle = '#b9cbd2';
+    ctx.font = '600 29px Arial, sans-serif';
+    ctx.fillText('TRAINS', 45, 139);
+    ctx.fillStyle = '#f2f7f7';
+    ctx.textAlign = 'right';
+    ctx.font = '700 84px Arial, sans-serif';
+    ctx.fillText('→', 716, 91);
+    ctx.strokeStyle = '#6d8792';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(560, 30);
+    ctx.lineTo(560, 162);
+    ctx.stroke();
+    ctx.fillStyle = '#b9cbd2';
+    ctx.font = '500 25px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.fillText('站台', 528, 139);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
 }
 
 function makeMetroConcreteTexture(): THREE.CanvasTexture {

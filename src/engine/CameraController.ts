@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { TerrainSystem } from './Terrain';
 import type { TrainPose } from './TrainLayer';
 
-type Mode = 'orbit' | 'follow';
+type Mode = 'orbit' | 'follow' | 'platform';
 
 interface OrbitState {
   position: THREE.Vector3;
@@ -109,12 +109,15 @@ export class CameraController {
 
   enterFollow(): void {
     if (this.mode === 'follow') return;
-    this.saved = {
-      position: this.camera.position.clone(),
-      target: this.controls.target.clone(),
-    };
+    if (this.mode === 'orbit' || !this.saved) {
+      this.saved = {
+        position: this.camera.position.clone(),
+        target: this.controls.target.clone(),
+      };
+    }
     this.mode = 'follow';
     this.followBlend = 0;
+    this.restoreOrbitControls();
     this.controls.enabled = false;
     this.flying = null;
     this.restoring = null;
@@ -124,6 +127,7 @@ export class CameraController {
     if (this.mode !== 'follow') return;
     this.mode = 'orbit';
     this.followPose = null;
+    this.restoreOrbitControls();
     if (this.saved) {
       this.restoring = {
         from: { position: this.camera.position.clone(), target: this.lookAtTarget.clone() },
@@ -132,6 +136,65 @@ export class CameraController {
       };
     }
     this.saved = null;
+  }
+
+  enterPlatform(position: THREE.Vector3, lookTarget: THREE.Vector3): void {
+    if (this.mode === 'orbit' || !this.saved) {
+      this.saved = {
+        position: this.camera.position.clone(),
+        target: this.controls.target.clone(),
+      };
+    }
+    this.mode = 'platform';
+    this.followPose = null;
+    this.flying = null;
+    this.restoring = null;
+    this.restoreOrbitControls();
+
+    const direction = lookTarget.clone().sub(position).normalize();
+    const target = position.clone().addScaledVector(direction, 0.08);
+    this.camera.position.copy(position);
+    this.controls.target.copy(target);
+    this.lookAtTarget.copy(target);
+    this.camera.lookAt(target);
+    this.controls.minDistance = 0.08;
+    this.controls.maxDistance = 0.08;
+    this.controls.minPolarAngle = Math.PI * 0.22;
+    this.controls.maxPolarAngle = Math.PI * 0.72;
+    this.controls.enablePan = false;
+    this.controls.enableZoom = false;
+    this.controls.rotateSpeed = 0.65;
+    this.controls.enabled = true;
+    this.controls.update();
+  }
+
+  exitPlatform(): void {
+    if (this.mode !== 'platform') return;
+    const enableDamping = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    this.controls.update();
+    this.controls.enableDamping = enableDamping;
+    this.mode = 'orbit';
+    this.restoreOrbitControls();
+    if (this.saved) {
+      this.restoring = {
+        from: { position: this.camera.position.clone(), target: this.controls.target.clone() },
+        to: this.saved,
+        t: 0,
+      };
+      this.controls.enabled = false;
+    }
+    this.saved = null;
+  }
+
+  private restoreOrbitControls(): void {
+    this.controls.minDistance = 45;
+    this.controls.maxDistance = 180000;
+    this.controls.minPolarAngle = 0;
+    this.controls.maxPolarAngle = Math.PI * 0.485;
+    this.controls.enablePan = true;
+    this.controls.enableZoom = true;
+    this.controls.rotateSpeed = 0.5;
   }
 
   flyTo(center: [number, number], bounds: [number, number, number, number], duration = 1.2): void {
@@ -200,7 +263,7 @@ export class CameraController {
   }
 
   zoomBy(factor: number): void {
-    if (this.mode === 'follow') return;
+    if (this.mode !== 'orbit') return;
     this.flying = null;
     this.restoring = null;
     this.controls.enabled = true;
@@ -285,6 +348,13 @@ export class CameraController {
       return;
     }
 
+    if (this.mode === 'platform') {
+      this.controls.enabled = true;
+      this.controls.update();
+      this.lookAtTarget.copy(this.controls.target);
+      return;
+    }
+
     this.controls.enabled = true;
     this.controls.update();
     const ground =
@@ -342,7 +412,7 @@ export class CameraController {
   }
 
   private updateFov(dt: number): void {
-    const target = this.mode === 'follow' ? (this.tunnel ? 64 : 58) : 55;
+    const target = this.mode === 'follow' ? (this.tunnel ? 64 : 58) : this.mode === 'platform' ? 62 : 55;
     const diff = target - this.camera.fov;
     if (Math.abs(diff) < 0.04) return;
     this.camera.fov += diff * (1 - Math.exp(-dt * 5));

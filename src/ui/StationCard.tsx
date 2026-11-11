@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import type { ViewerApi } from '@/state/api';
 import { store, useAppState, directionLabel, formatClockAbs, formatDuration } from '@/state/store';
-import { CloseIcon, TargetIcon } from './Icons';
+import { CloseIcon, TargetIcon, TrainIcon } from './Icons';
 
 interface StationCardProps {
   api: ViewerApi | null;
@@ -16,7 +16,7 @@ function callStateLabel(state: 'approaching' | 'dwelling' | 'departing', etaSec:
 export function StationCard({ api }: StationCardProps) {
   const state = useAppState();
   const station = state.station;
-  if (!station) return null;
+  if (!station || state.platformStation) return null;
 
   const lines = station.lines
     .map((id) => {
@@ -142,11 +142,51 @@ export function StationCard({ api }: StationCardProps) {
         <button
           type="button"
           className="btn btn-ghost"
-          onClick={() => store.patch({ station: null, stationBoard: [] })}
+          onClick={() => api?.enterPlatformView(station.id)}
+          disabled={!api}
         >
-          关闭
+          <TrainIcon width={14} height={14} />
+          站台候车视角
         </button>
       </div>
     </section>
+  );
+}
+
+export function PlatformHud({ api }: StationCardProps) {
+  const station = useAppState().platformStation;
+  if (!station) return null;
+
+  const underground = station.stationType === 'underground';
+  return (
+    <>
+      <div className="follow-vignette" aria-hidden="true" />
+      {underground && <div className="tunnel-veil" aria-hidden="true" />}
+      <section className="follow-hud platform-hud glass-panel" aria-label={`${station.name}站台候车视角`}>
+        <div className="follow-head">
+          <span className="follow-icon" aria-hidden="true">
+            <TrainIcon width={16} height={16} />
+          </span>
+          <div className="follow-line-block">
+            <span className="follow-line">{station.name} · 站台候车</span>
+            <span className="follow-dest">{underground ? '地下站台' : '地上站台'} · 上车前视角</span>
+          </div>
+          <span className="follow-code">眼高 1.7m</span>
+        </div>
+        <p className="platform-hint">拖动画面环顾站台，观察列车进站、停靠与出站。候车位固定，滚轮缩放与平移已停用。</p>
+        <div className="follow-foot">
+          <span className="follow-progress-text">Esc 退出并恢复原视角</span>
+          <button
+            type="button"
+            className="exit-follow"
+            onClick={() => api?.exitPlatformView()}
+            disabled={!api}
+          >
+            <CloseIcon width={13} height={13} />
+            退出候车
+          </button>
+        </div>
+      </section>
+    </>
   );
 }
