@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "description": "重庆轨道交通三维实时可视化",
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",

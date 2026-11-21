@@ -28,6 +28,24 @@ npm run dev        # http://localhost:5173
 npm run build:data     # 下载 OSM 提取 + 高程瓦片，约 2 分钟（首次会缓存到 .cache/）
 ```
 
+## 软件许可
+
+本项目源码公开，采用 [PolyForm Noncommercial License 1.0.0](LICENSE)，**仅允许非商业用途**：
+
+- **允许**：个人学习、研究、实验、教学、非营利组织与政府机构内部使用，以及在此基础上修改与分发
+- **禁止**：任何商业目的的使用，包括但不限于将其集成进商业产品、提供付费服务、用于商业演示或商业推广
+- **分发要求**：分发本项目或其修改版时，须附带本许可全文（或许可链接）与上方 `Required Notice` 版权声明
+
+> 严格的「开源（Open Source）」定义不允许限制使用领域，因此本项目属于**源码公开（source-available）、禁止商用**，并非 OSI 认证的开源许可证。如需商业授权，请联系作者另行协商。
+
+第三方资源不受本项目许可覆盖，仍遵循其原始许可：
+
+| 资源 | 位置 | 许可 |
+| --- | --- | --- |
+| 第三方站台道具模型 | `public/models/third-party/` | CC0 / CC-BY，详见 [ATTRIBUTION.txt](public/models/third-party/ATTRIBUTION.txt) |
+| 线网 / 车站 / 建筑 / 水系数据 | `public/data/` | ODbL（© OpenStreetMap 贡献者） |
+| 地形高程 | `public/data/` | 见数据源说明 |
+
 ## 数据来源与许可
 
 | 数据 | 来源 | 许可 |
