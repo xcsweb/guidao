@@ -27,6 +27,7 @@ const LINE_META = {
   '6-guobo': { ref: '6', name: '国博线', color: '#DB5A7B' },
   9: { ref: '9', name: '9号线', color: '#811C2A' },
   10: { ref: '10', name: '10号线', color: '#61279E' },
+  15: { ref: '15', name: '15号线', color: '#0057B8' },
   18: { ref: '18', name: '18号线', color: '#1CD4C6' },
   jiangtiao: { ref: 'JT', name: '江跳线', color: '#0056B8' },
   bitong: { ref: 'BT', name: '璧铜线', color: '#0056B8' },
@@ -48,6 +49,10 @@ const UNOPENED_STATIONS = {
   jiangtiao: new Set(['几江', '鼎山']),
   bitong: new Set(['青龙湖']),
 };
+
+// Partially opened lines: OSM carries the whole corridor, but only the section
+// between the two terminal stations that are actually in service should ship.
+const TRIM_TO_OPENED = new Set(['15']);
 
 const RIVER_WIDTH = {
   长江: 700,
@@ -165,7 +170,7 @@ export async function extractOsm(pbfPath, city, { log = console.log } = {}) {
       const isRiver = tags.waterway === 'river' && !!tags.name;
       const isLineWay =
         RAIL_TYPES.has(tags.railway) &&
-        (tags.railway !== 'rail' || (tags.ref && ['1', '2', '4', '5', '6', '9', '10', '18', 'JT', 'BT'].includes(tags.ref)));
+        (tags.railway !== 'rail' || (tags.ref && ['1', '2', '4', '5', '6', '9', '10', '15', '18', 'JT', 'BT'].includes(tags.ref)));
       if (!wanted && !isBuilding && !isRiver && !isLineWay) continue;
       const entry = { id: item.id, refs: item.refs, tags };
       ways.set(item.id, entry);
@@ -224,7 +229,7 @@ export async function extractOsm(pbfPath, city, { log = console.log } = {}) {
     const chosen = pickRelation(key, candidates);
     if (!chosen) continue;
 
-    const built = buildLinePath(chosen, ways, nodes, projection, bbox);
+    let built = buildLinePath(chosen, ways, nodes, projection, bbox);
     if (!built || built.flat.length < 6) {
       warnings.push(`线路 ${meta.name} 缺少有效轨道几何，已跳过`);
       continue;
@@ -298,6 +303,12 @@ export async function extractOsm(pbfPath, city, { log = console.log } = {}) {
       }
     }
 
+    if (TRIM_TO_OPENED.has(key)) {
+      const trimmed = trimToStations(built, stationEntries);
+      built = trimmed.built;
+      stationEntries = trimmed.stations;
+    }
+
     const simple = simplifyFlat(built.flat, key === 'loop' ? 3 : 4);
     const lineStations = stationEntries
       .map((s) => ({
@@ -369,7 +380,7 @@ export async function extractOsm(pbfPath, city, { log = console.log } = {}) {
 }
 
 function lineOrder(id) {
-  const order = ['loop', '1', '2', '3', '3-airport', '4', '5', '6', '6-east', '6-guobo', '9', '10', '18', 'jiangtiao', 'bitong'];
+  const order = ['loop', '1', '2', '3', '3-airport', '4', '5', '6', '6-east', '6-guobo', '9', '10', '15', '18', 'jiangtiao', 'bitong'];
   const idx = order.indexOf(id);
   return idx === -1 ? 99 : idx;
 }
@@ -504,7 +515,7 @@ function matchLineWay(tags, key) {
   if (key === '6') return ref === '6' && !name.includes('国博') && !name.includes('重庆东站');
   if (key === 'jiangtiao') return ref === 'JT' || name.includes('江跳');
   if (key === 'bitong') return ref === 'BT' || name.includes('璧铜');
-  if (['1', '2', '4', '5', '9', '10', '18'].includes(key)) {
+  if (['1', '2', '4', '5', '9', '10', '15', '18'].includes(key)) {
     return ref === key || (ref === '' && name.includes(`${key}号线`));
   }
   return false;
@@ -656,11 +667,60 @@ function stitchLine(key, startStation, endStation, corridorBounds, lineWays, nod
   return { flat, points, bridgeRanges, tunnelRanges };
 }
 
+/** Clip a line path to the stretch between its first and last in-service station. */
+function trimToStations(built, stations) {
+  if (!stations.length) return { built, stations };
+  const pts = built.points;
+  const d0 = Math.min(...stations.map((s) => s.dist));
+  const d1 = Math.max(...stations.map((s) => s.dist));
+  if (!(d1 - d0 > 100)) return { built, stations };
+
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) {
+    cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  }
+  const pointAt = (d) => {
+    let i = 1;
+    while (i < cum.length - 1 && cum[i] < d) i++;
+    const span = cum[i] - cum[i - 1];
+    const t = span > 1e-6 ? Math.max(0, Math.min(1, (d - cum[i - 1]) / span)) : 0;
+    return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t];
+  };
+
+  const out = [pointAt(d0)];
+  for (let i = 0; i < pts.length; i++) {
+    if (cum[i] > d0 + 1 && cum[i] < d1 - 1) out.push(pts[i]);
+  }
+  out.push(pointAt(d1));
+
+  const flat = [];
+  for (const [x, z] of out) flat.push(x, z);
+
+  const clip = (ranges) =>
+    ranges
+      .map(([a, b]) => [Math.max(0, a - d0), Math.min(d1 - d0, b - d0)])
+      .filter(([a, b]) => b - a > 30);
+
+  return {
+    built: {
+      ...built,
+      flat,
+      points: out,
+      bridgeRanges: clip(built.bridgeRanges),
+      tunnelRanges: clip(built.tunnelRanges),
+    },
+    stations: stations
+      .filter((s) => s.dist >= d0 - 1 && s.dist <= d1 + 1)
+      .map((s) => ({ ...s, dist: s.dist - d0 })),
+  };
+}
+
 function relationTermini(key, rel, nodes) {
   const unopened = UNOPENED_STATIONS[key] || new Set();
   const stops = [];
   for (const member of rel.members) {
     if (member.type !== 'node') continue;
+    if (member.role && member.role.startsWith('inactive')) continue;
     const node = nodes.get(member.ref);
     const name = node?.tags?.name || node?.tags?.['name:zh'];
     if (!node || !name || unopened.has(name)) continue;
@@ -677,6 +737,7 @@ function collectStations(key, rel, built, nodes, stationNodes, projection) {
 
   for (const member of rel.members) {
     if (member.type !== 'node') continue;
+    if (member.role && member.role.startsWith('inactive')) continue;
     const node = nodes.get(member.ref);
     if (!node) continue;
     const name = node.tags?.name || node.tags?.['name:zh'];
