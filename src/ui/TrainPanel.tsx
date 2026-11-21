@@ -173,6 +173,7 @@ function LineTimetablePanel() {
   const state = useAppState();
   const board = state.lineBoard;
   const sourceKind = state.source.kind;
+  const service = state.lineBoard ? (state.lineServices[state.lineBoard.lineId] ?? state.service) : state.service;
 
   if (!board) {
     return (
@@ -263,9 +264,9 @@ function LineTimetablePanel() {
       </ul>
 
       <p className="tt-foot">
-        运营时段 {state.service ? `${formatClockAbs(state.service.startSec)}–${formatClockAbs(state.service.endSec)}` : '06:00–23:00'}
-        {state.service
-          ? ` · 高峰间隔 ${Math.round(state.service.headwayPeakSec / 60)} 分 / 平峰 ${Math.round(state.service.headwayOffSec / 60)} 分 · 停站 ${Math.round(state.service.dwellSec)} 秒`
+        运营时段 {service ? `${formatClockAbs(service.startSec)}–${formatClockAbs(service.endSec)}` : '06:00–23:00'}
+        {service
+          ? ` · 高峰间隔 ${Math.round(service.headwayPeakSec / 60)} 分 / 平峰 ${Math.round(service.headwayOffSec / 60)} 分 · 停站 ${Math.round(service.dwellSec)} 秒`
           : ''}
       </p>
     </div>

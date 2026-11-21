@@ -235,6 +235,7 @@ export class Viewer {
       exaggeration: 1,
       quality: this.quality,
       service: loaded.network.service,
+      lineServices: loaded.network.services ?? {},
     });
   }
 

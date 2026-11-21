@@ -50,6 +50,7 @@ const network = {
   lines: extracted.lines,
   stations: extracted.stations,
   service: city.service,
+  ...(city.lineService ? { services: city.lineService } : {}),
 };
 writeJson(join(outDir, 'network.json'), network);
 

@@ -26,9 +26,20 @@
     "6-guobo": 30,
     "9": 36,
     "10": 40,
+    "15": 72,
     "18": 38,
     "jiangtiao": 55,
     "bitong": 55
+  },
+  "lineService": {
+    "15": {
+      "startSec": 27000,
+      "endSec": 73800,
+      "peakRanges": [[25200, 34200], [61200, 70200]],
+      "headwayPeakSec": 600,
+      "headwayOffSec": 720,
+      "dwellSec": 35
+    }
   },
   "terrain": {
     "tiers": [

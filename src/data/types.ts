@@ -95,6 +95,8 @@ export interface NetworkFile {
   lines: LineData[];
   stations: StationData[];
   service: ServiceConfig;
+  /** Per-line operating windows for lines that differ from the network default. */
+  services?: Record<string, ServiceConfig>;
 }
 
 export interface TerrainTier {

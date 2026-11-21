@@ -80,6 +80,7 @@ export interface AppState {
   stationBoard: StationCall[];
   lineBoard: LineBoard | null;
   service: ServiceConfig | null;
+  lineServices: Record<string, ServiceConfig>;
   followTunnel: boolean;
   source: {
     kind: 'simulated' | 'http';
@@ -112,6 +113,7 @@ const initialState: AppState = {
   stationBoard: [],
   lineBoard: null,
   service: null,
+  lineServices: {},
   followTunnel: false,
   source: { kind: 'simulated', label: '模拟班次', asOf: 0 },
   toast: null,

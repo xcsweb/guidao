@@ -187,9 +187,10 @@ export class Timetable {
     for (const line of network.lines) {
       const geo = geometries.get(line.id);
       if (!geo) continue;
+      const service = network.services?.[line.id] ?? this.service;
       this.schedules.set(line.id, [
-        buildSchedule(line, geo, this.service, 0),
-        buildSchedule(line, geo, this.service, 1),
+        buildSchedule(line, geo, service, 0),
+        buildSchedule(line, geo, service, 1),
       ]);
     }
   }
